@@ -1,907 +1,992 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8" />
-<title>Saisie de formulaire</title>
-<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
-<style>
-  :root {
-    --border: #d8dce1;
-    --text: #1f2933;
-    --muted: #6b7684;
-    --accent: #2f6fed;
-    --accent-dark: #1f4fc4;
-    --error: #c0392b;
-    --success: #2f7d4f;
-    --bg-field: #f8f9fb;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 16px 18px 32px;
-    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-    color: var(--text);
-    background: #fff;
-    font-size: 14px;
-  }
-  h1 { font-size: 16px; margin: 0 0 4px; }
-  .subtitle { font-size: 12px; color: var(--muted); margin: 0 0 20px; }
-  #status { font-size: 13px; color: var(--muted); padding: 16px 0; }
-  #status.error { color: var(--error); }
-  #status.success { color: var(--success); }
-  #status.warn { color: #b8860b; }
-
-  fieldset {
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 14px 16px 16px;
-    margin: 0 0 16px;
-  }
-  fieldset:disabled { opacity: 0.5; }
-  legend {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
-    color: var(--muted); padding: 0 6px;
-  }
-
-  .field { margin-bottom: 12px; }
-  .field:last-child { margin-bottom: 0; }
-  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-  label .req { color: var(--error); font-weight: 400; }
-
-  input[type=text], input[type=number], input[type=date],
-  textarea, select {
-    width: 100%; padding: 8px 10px; font-size: 14px;
-    border: 1px solid var(--border); border-radius: 5px;
-    background: var(--bg-field); font-family: inherit; color: var(--text);
-  }
-  input:focus, textarea:focus, select:focus {
-    outline: none; border-color: var(--accent); background: #fff;
-  }
-  textarea { min-height: 70px; resize: vertical; }
-
-  .checkbox-row { display: flex; align-items: center; gap: 8px; }
-  .checkbox-row input { width: auto; }
-  .checkbox-row label { margin: 0; }
-
-  .readonly-value {
-    padding: 8px 10px; font-size: 14px; background: var(--bg-field);
-    border: 1px dashed var(--border); border-radius: 5px; color: var(--muted);
-  }
-
-  button {
-    width: 100%; padding: 11px; font-size: 14px; font-weight: 600;
-    color: #fff; background: var(--accent); border: none; border-radius: 6px;
-    cursor: pointer; margin-top: 4px;
-  }
-  button:hover { background: var(--accent-dark); }
-  button:disabled { background: var(--muted); cursor: not-allowed; }
-
-  .field-error { border-color: var(--error) !important; }
-  .field-error-msg { font-size: 12px; color: var(--error); margin-top: 3px; }
-
-  .empty-hint { font-size: 12px; color: var(--muted); font-style: italic; }
-</style>
-</head>
-<body>
-
-<h1>Saisie d'intervention</h1>
-<p class="subtitle" id="formSubtitle">Chargement…</p>
-
-<div id="status"></div>
-
-<form id="mainForm" style="display:none;">
-  <fieldset id="fsAgent">
-    <legend>Agent</legend>
-    <div class="field">
-      <label for="field___agent">Agent<span class="req"> *</span></label>
-      <select id="field___agent"><option value="">— Sélectionner —</option></select>
-    </div>
-    <div class="field">
-      <label>Site / Service</label>
-      <div class="readonly-value" id="siteServiceDisplay">Sélectionnez un agent</div>
-    </div>
-  </fieldset>
-
-  <fieldset id="fsFormulaire" disabled>
-    <legend>Formulaire</legend>
-    <div class="field">
-      <label for="field___formulaire">Formulaire à remplir<span class="req"> *</span></label>
-      <select id="field___formulaire"><option value="">— Sélectionnez d'abord un agent —</option></select>
-    </div>
-    <div class="field">
-      <label for="field___date">Date d'intervention<span class="req"> *</span></label>
-      <input type="date" id="field___date" />
-    </div>
-  </fieldset>
-
-  <fieldset id="fsDetail" disabled>
-    <legend id="fsDetailLegend">Détails</legend>
-    <div id="detailFieldsContainer" class="empty-hint">Sélectionnez un formulaire pour afficher ses champs.</div>
-  </fieldset>
-
-  <button type="submit" id="submitBtn">Enregistrer l'intervention</button>
-</form>
-
-<script>
-/* ============================================================
-   CONFIGURATION — au niveau du DOCUMENT, pas par formulaire.
-   Un seul déploiement de ce widget suffit pour tous les formulaires.
-   ⚠️ Prérequis dans Grist avant de tester :
-     - Table "Formulaires" : ajouter une colonne texte "Table_Technique"
-       contenant le tableId technique exact de la table de détail
-       correspondante (voir "Données brutes" / Raw Data).
-       Remplir cette colonne pour chaque formulaire existant.
-   ============================================================ */
-const CFG = {
-  agentsTable: "Agents",
-  agentDisplayColumn: "Nom_Complet_Agent",
-  agentSiteColumn: "Site",
-  agentServiceColumn: "Service",
-  agentFormulairesAccessiblesColumn: "Formulaires_Accessibles", // Référence multiple -> Formulaires
-
-  sitesTable: "Sites",
-  siteNameColumn: "Nom",
-
-  servicesTable: "Services",
-  serviceTypeColumn: "Type",
-
-  formulairesTable: "Formulaires",
-  formulaireTitleColumn: "Titre",
-  formulaireActifColumn: "Actif",
-  formulaireTableTechniqueColumn: "Table_Technique",
-
-  reponsesTable: "Reponses",
-  // Colonne Texte à ajouter dans Reponses (via Grist) : sert de marqueur
-  // "écriture détail en attente" pour la reprise résiliente (voir
-  // ReponseService). Nom exact à faire correspondre à la vraie colonne.
-  pendingDetailColumn: "Detail_En_Attente",
-  // Nom de colonne supposé identique dans toutes les tables de détail
-  // (convention à respecter pour que la détection automatique fonctionne).
-  detailLinkColumnConvention: "Reponse",
-
-  // Colonnes techniques Grist à toujours ignorer lors de la génération auto
-  excludedTechnicalColumns: ["manualSort"],
-};
-/* ============================================================
-   FIN DE LA CONFIGURATION
-   ============================================================ */
-
-
-/* ---------- Logger ---------- */
-const Logger = {
-  debug(...args) { console.log("[Widget]", ...args); },
-  warn(...args) { console.warn("[Widget]", ...args); },
-  error(...args) { console.error("[Widget]", ...args); },
-};
-
-
-/* ---------- Utilitaires ---------- */
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, c => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
-function fieldId(f) { return "field_" + f.name; }
-
-function requireColumn(tableData, columnName, tableLabelForError) {
-  if (!(columnName in tableData)) {
-    const available = Object.keys(tableData).filter(k => k !== "id").sort().join(", ");
-    throw new Error(
-      `Colonne "${columnName}" introuvable dans "${tableLabelForError}". ` +
-      `Colonnes disponibles : ${available || "(aucune)"}. Corrige CFG en conséquence.`
-    );
-  }
-  return tableData[columnName];
-}
-
-/** Normalise une valeur de colonne Référence multiple (RefList) en tableau d'ids. */
-function normalizeRefList(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) {
-    // Certaines réponses Grist préfixent la liste par le marqueur "L".
-    if (raw[0] === "L") return raw.slice(1);
-    return raw;
-  }
-  return [];
-}
-
-
-/* ============================================================
-   GristApi — seul point de contact avec l'API Grist.
-   ============================================================ */
-const GristApi = {
-  async fetchTable(tableName) {
-    return grist.docApi.fetchTable(tableName);
-  },
-  async addRecord(tableName, fields) {
-    const result = await grist.docApi.applyUserActions([
-      ["AddRecord", tableName, null, fields],
-    ]);
-    return result.retValues[0];
-  },
-  async updateRecord(tableName, rowId, fields) {
-    await grist.docApi.applyUserActions([
-      ["UpdateRecord", tableName, rowId, fields],
-    ]);
-  },
-  /**
-   * EXPÉRIMENTAL — tentative d'identification de l'utilisateur connecté.
-   * ⚠️ Endpoint non confirmé officiellement, construit par analogie avec
-   * celui des pièces jointes (même mécanisme de jeton). Purement
-   * diagnostique pour l'instant : n'affecte aucun comportement existant du
-   * widget, juste un test consigné en console.
-   */
-  async whoAmI() {
-    const { token, baseUrl } = await grist.docApi.getAccessToken({ readOnly: true });
-    // baseUrl ressemble à ".../o/docs/api/docs/{docId}" — on retire le
-    // segment "/docs/{docId}" final pour retrouver la racine de l'API.
-    const apiRoot = baseUrl.replace(/\/docs\/[^/]+$/, "");
-    const url = `${apiRoot}/profile/user?auth=${token}`;
-    Logger.debug("[whoAmI] URL testée :", url);
-    const response = await fetch(url);
-    Logger.debug("[whoAmI] Statut :", response.status, response.type);
-    const bodyText = await response.text().catch(() => "(corps illisible)");
-    Logger.debug("[whoAmI] Corps de la réponse :", bodyText);
-    if (!response.ok) {
-      throw new Error(`whoAmI a échoué (HTTP ${response.status}) : ${bodyText}`);
-    }
-    return JSON.parse(bodyText);
-  },
-  /**
-   * Upload un ou plusieurs fichiers vers Grist et renvoie les identifiants
-   * de pièce jointe générés. Réactivée dans le flux de soumission : la
-   * coupure de session observée après applyUserActions touche toutes les
-   * écritures (pas spécifique aux pièces jointes), et le mécanisme de
-   * reprise (ReponseService.resumePendingIfAny) protège désormais contre
-   * la perte de données que ça provoquait.
-   */
-  async uploadAttachments(fileList) {
-    if (!fileList || fileList.length === 0) return [];
-    const accessInfo = await grist.docApi.getAccessToken({ readOnly: false });
-    Logger.debug("Résultat de getAccessToken() :", accessInfo);
-    const { token, baseUrl } = accessInfo;
-    const url = `${baseUrl}/attachments?auth=${token}`;
-    Logger.debug("URL d'upload construite :", url);
-    const formData = new FormData();
-    for (const file of fileList) formData.append("upload", file, file.name);
-    const response = await fetch(url, {
-      method: "POST",
-      body: formData,
-      headers: { "X-Requested-With": "XMLHttpRequest" },
-    });
-    Logger.debug("Réponse upload — status:", response.status, "type:", response.type);
-    if (!response.ok) {
-      let bodyText = "";
-      try { bodyText = await response.text(); } catch (e) { bodyText = "(corps illisible, probablement bloqué par CORS)"; }
-      throw new Error(`Échec de l'upload (HTTP ${response.status}). ${bodyText}`);
-    }
-    const result = await response.json();
-    Logger.debug("Résultat brut de l'upload :", result);
-    return result;
-  },
-};
-
-
-/* ============================================================
-   FieldTypes — registre des types de champ (utilisé pour les
-   champs "détail" générés dynamiquement depuis le schéma).
-   ============================================================ */
-const FieldTypes = {
-  text: {
-    render(f) { return fieldWrapper(f, `<input type="text" id="${fieldId(f)}" />`); },
-    read(f) {
-      const v = document.getElementById(fieldId(f)).value;
-      return v === "" ? null : v;
-    },
-  },
-  textarea: {
-    render(f) { return fieldWrapper(f, `<textarea id="${fieldId(f)}"></textarea>`); },
-    read(f) {
-      const v = document.getElementById(fieldId(f)).value;
-      return v === "" ? null : v;
-    },
-  },
-  number: {
-    render(f) { return fieldWrapper(f, `<input type="number" step="any" id="${fieldId(f)}" />`); },
-    read(f) {
-      const v = document.getElementById(fieldId(f)).value;
-      return v === "" ? null : Number(v);
-    },
-  },
-  date: {
-    render(f) { return fieldWrapper(f, `<input type="date" id="${fieldId(f)}" />`); },
-    read(f) {
-      const v = document.getElementById(fieldId(f)).value;
-      return v ? Math.floor(new Date(v).getTime() / 1000) : null;
-    },
-  },
-  boolean: {
-    render(f) {
-      const wrap = document.createElement("div");
-      wrap.className = "field";
-      wrap.innerHTML = `
-        <div class="checkbox-row">
-          <input type="checkbox" id="${fieldId(f)}" />
-          <label for="${fieldId(f)}">${escapeHtml(f.label)}</label>
-        </div>`;
-      return wrap;
-    },
-    read(f) { return document.getElementById(fieldId(f)).checked; },
-  },
-  choice: {
-    render(f) {
-      const options = (f.options || [])
-        .map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
-      return fieldWrapper(f, `<select id="${fieldId(f)}"><option value="">— Sélectionner —</option>${options}</select>`);
-    },
-    read(f) {
-      const v = document.getElementById(fieldId(f)).value;
-      return v === "" ? null : v;
-    },
-  },
-  attachment: {
-    // Un vrai sélecteur de fichier, à nouveau : l'upload en lui-même
-    // fonctionne (confirmé), et le mécanisme de reprise (ReponseService.
-    // resumePendingIfAny) protège contre l'interruption de session
-    // observée entre les deux écritures — même si docShutdown survient,
-    // la référence de pièce jointe déjà résolue est sauvegardée avant
-    // d'être tentée, donc jamais perdue.
-    render(f) {
-      return fieldWrapper(f, `<input type="file" id="${fieldId(f)}" accept="image/*" multiple />`);
-    },
-    read(f) {
-      return document.getElementById(fieldId(f)).files;
-    },
-  },
-};
-
-function fieldWrapper(f, inputHtml) {
-  const wrap = document.createElement("div");
-  wrap.className = "field";
-  const reqMark = f.required ? ' <span class="req">*</span>' : "";
-  wrap.innerHTML = `<label for="${fieldId(f)}">${escapeHtml(f.label)}${reqMark}</label>${inputHtml}`;
-  return wrap;
-}
-
-
-/* ============================================================
-   SchemaService — lit le schéma réel d'une table Grist (via les
-   tables système) pour générer automatiquement la liste des champs.
-   ⚠️ Mécanisme à vérifier au premier test réel : certains types
-   (Référence, Pièce jointe, Choix multiple) ne sont pas encore
-   pris en charge et seront ignorés (avec avertissement console)
-   plutôt que de faire planter le widget.
-   ============================================================ */
-const SchemaService = {
-  async getFieldsForTable(tableId) {
-    const [tablesMeta, columnsMeta] = await Promise.all([
-      GristApi.fetchTable("_grist_Tables"),
-      GristApi.fetchTable("_grist_Tables_column"),
-    ]);
-
-    const idx = tablesMeta.tableId.indexOf(tableId);
-    if (idx === -1) {
-      throw new Error(
-        `Table technique "${tableId}" introuvable dans le document. ` +
-        `Vérifie Formulaires.${CFG.formulaireTableTechniqueColumn} (Raw Data pour le nom exact).`
-      );
-    }
-    const tableRowId = tablesMeta.id[idx];
-
-    const fields = [];
-    const skipped = [];
-    columnsMeta.id.forEach((_, i) => {
-      if (columnsMeta.parentId[i] !== tableRowId) return;
-      const colId = columnsMeta.colId[i];
-      if (colId === CFG.detailLinkColumnConvention) return;
-      if (CFG.excludedTechnicalColumns.includes(colId)) return;
-      if (colId.startsWith("gristHelper_")) return;
-
-      if (columnsMeta.isFormula && columnsMeta.isFormula[i]) {
-        skipped.push({ colId, reason: "colonne vide/formule (voir note ci-dessous)" });
-        return;
-      }
-
-      const gristType = columnsMeta.type[i] || "";
-      const mappedType = mapGristType(gristType);
-      if (!mappedType) {
-        skipped.push({ colId, reason: `type "${gristType}" non pris en charge` });
-        Logger.warn(`Colonne "${colId}" (type Grist "${gristType}") non gérée automatiquement — ignorée.`);
-        return;
-      }
-
-      let options = [];
-      if (mappedType === "choice") {
-        try {
-          const wo = JSON.parse(columnsMeta.widgetOptions[i] || "{}");
-          options = wo.choices || [];
-        } catch (e) {
-          Logger.warn(`Impossible de lire les choix de "${colId}" :`, e);
-        }
-      }
-
-      fields.push({
-        name: colId,
-        label: columnsMeta.label[i] || colId,
-        type: mappedType,
-        required: false,
-        options,
-      });
-    });
-
-    return { fields, skipped };
-  },
-};
-
-function mapGristType(gristType) {
-  if (gristType === "Text") return "text";
-  if (gristType === "Numeric" || gristType === "Int") return "number";
-  if (gristType === "Bool") return "boolean";
-  if (gristType === "Choice") return "choice";
-  if (gristType === "Date" || gristType.startsWith("DateTime")) return "date";
-  if (gristType === "Attachments") return "attachment";
-  return null; // ChoiceList, Ref:*, RefList:* : non gérés pour l'instant
-}
-
-
-/* ============================================================
-   Validator
-   ============================================================ */
-const Validator = {
-  validate(fields) {
-    const values = {};
-    const errors = [];
-    for (const f of fields) {
-      const value = FieldTypes[f.type].read(f);
-      values[f.name] = value;
-      if (f.required && (value === null || value === "")) {
-        errors.push({ field: f, message: "Champ requis" });
-      }
-    }
-    return { values, errors };
-  },
-};
-
-
-/* ============================================================
-   UiFeedback
-   ============================================================ */
-const UiFeedback = {
-  showStatus(msg, kind) {
-    const el = document.getElementById("status");
-    el.textContent = msg;
-    el.className = kind || "";
-  },
-  markFieldError(f, msg) {
-    const el = document.getElementById(fieldId(f));
-    if (!el) return;
-    el.classList.add("field-error");
-    const p = document.createElement("div");
-    p.className = "field-error-msg";
-    p.textContent = msg;
-    el.parentElement.appendChild(p);
-  },
-  clearFieldErrors() {
-    document.querySelectorAll(".field-error").forEach(el => el.classList.remove("field-error"));
-    document.querySelectorAll(".field-error-msg").forEach(el => el.remove());
-  },
-};
-
-
-/* ============================================================
-   AgentRepository
-   ============================================================ */
-const AgentRepository = {
-  async loadAll() {
-    const [agentsTable, sitesTable, servicesTable] = await Promise.all([
-      GristApi.fetchTable(CFG.agentsTable),
-      GristApi.fetchTable(CFG.sitesTable),
-      GristApi.fetchTable(CFG.servicesTable),
-    ]);
-
-    Logger.debug("Colonnes Agents :", Object.keys(agentsTable));
-
-    const agentSiteCol = requireColumn(agentsTable, CFG.agentSiteColumn, CFG.agentsTable);
-    const agentServiceCol = requireColumn(agentsTable, CFG.agentServiceColumn, CFG.agentsTable);
-    const agentLabelCol = requireColumn(agentsTable, CFG.agentDisplayColumn, CFG.agentsTable);
-    const agentFormAccessCol = requireColumn(agentsTable, CFG.agentFormulairesAccessiblesColumn, CFG.agentsTable);
-    const siteNameCol = requireColumn(sitesTable, CFG.siteNameColumn, CFG.sitesTable);
-    const serviceTypeCol = requireColumn(servicesTable, CFG.serviceTypeColumn, CFG.servicesTable);
-
-    const siteNameById = {};
-    sitesTable.id.forEach((id, i) => { siteNameById[id] = siteNameCol[i]; });
-    const serviceTypeById = {};
-    servicesTable.id.forEach((id, i) => { serviceTypeById[id] = serviceTypeCol[i]; });
-
-    return agentsTable.id.map((id, i) => {
-      const siteName = siteNameById[agentSiteCol[i]] || null;
-      const serviceTypeName = serviceTypeById[agentServiceCol[i]] || null;
-      return {
-        id,
-        label: agentLabelCol[i],
-        serviceDisplay: (serviceTypeName && siteName) ? `${serviceTypeName} - ${siteName}` : null,
-        formulaireIds: normalizeRefList(agentFormAccessCol[i]),
-      };
-    });
-  },
-};
-
-
-/* ============================================================
-   FormulaireCatalog
-   ============================================================ */
-const FormulaireCatalog = {
-  async loadAll() {
-    const t = await GristApi.fetchTable(CFG.formulairesTable);
-    const titleCol = requireColumn(t, CFG.formulaireTitleColumn, CFG.formulairesTable);
-    const actifCol = requireColumn(t, CFG.formulaireActifColumn, CFG.formulairesTable);
-    const tableTechCol = requireColumn(t, CFG.formulaireTableTechniqueColumn, CFG.formulairesTable);
-
-    return t.id.map((id, i) => ({
-      id,
-      titre: titleCol[i],
-      actif: actifCol[i],
-      tableTechnique: tableTechCol[i],
-    }));
-  },
-};
-
-
-/* ============================================================
-   ReponseService
-   ============================================================ */
-const ReponseService = {
-  async submit({ agentId, formulaireId, date, detailTable, detailValues }) {
-    // Le "job" à accomplir (créer la ligne détail) est inclus DANS la
-    // première écriture elle-même — pas dans le navigateur (localStorage
-    // s'est révélé non fiable dans cette iframe tierce, soumis au
-    // partitionnement de stockage selon les navigateurs/paramètres de vie
-    // privée, cf. incident constaté). Ainsi, dès que la ligne Reponses
-    // existe, la trace de ce qu'il reste à faire existe aussi, de façon
-    // garantie — dans les données elles-mêmes, pas dans un stockage local
-    // dont la fiabilité varie d'un poste à l'autre.
-    const pendingJob = JSON.stringify({
-      detailTable,
-      linkColumn: CFG.detailLinkColumnConvention,
-      detailValues,
-    });
-
-    const reponsesPayload = {
-      Agent: agentId,
-      Formulaire: formulaireId,
-      Date_Intervention: date,
-      [CFG.pendingDetailColumn]: pendingJob,
-    };
-    Logger.debug("Payload Reponses :", reponsesPayload);
-    const reponseId = await GristApi.addRecord(CFG.reponsesTable, reponsesPayload);
-    Logger.debug("Reponse créée, id =", reponseId);
-
-    await this.completeDetailWrite(reponseId, detailTable, detailValues);
-
-    return reponseId;
-  },
-
-  /** Crée la ligne détail puis efface le marqueur "en attente" sur Reponses. */
-  async completeDetailWrite(reponseId, detailTable, detailValues) {
-    const detailPayload = { [CFG.detailLinkColumnConvention]: reponseId, ...detailValues };
-    Logger.debug(`Payload ${detailTable} :`, detailPayload);
-    await GristApi.addRecord(detailTable, detailPayload);
-    await GristApi.updateRecord(CFG.reponsesTable, reponseId, { [CFG.pendingDetailColumn]: "" });
-  },
-
-  /**
-   * Cherche, parmi les Reponses visibles par l'utilisateur courant (donc
-   * déjà filtrées par les ACL), toute ligne dont l'écriture détail est
-   * restée en suspens — et la termine. À appeler tout au début de
-   * App.init(), avant toute autre chose. Protégé contre les doublons : si
-   * la ligne détail existe déjà (le job avait en fait réussi, seul le
-   * nettoyage du marqueur avait été interrompu), on se contente d'effacer
-   * le marqueur sans recréer de ligne.
-   */
-  async resumeAllPending() {
-    const reponsesTable = await GristApi.fetchTable(CFG.reponsesTable);
-    const pendingCol = reponsesTable[CFG.pendingDetailColumn];
-    if (!pendingCol) return [];
-
-    const pendingRows = reponsesTable.id
-      .map((id, i) => ({ id, raw: pendingCol[i] }))
-      .filter(r => r.raw);
-
-    if (pendingRows.length === 0) return [];
-
-    // Cache des tables détail déjà chargées, pour éviter de refetch la même
-    // table plusieurs fois si plusieurs lignes en attente la concernent.
-    const detailTableCache = {};
-
-    const results = [];
-    for (const row of pendingRows) {
-      let job;
-      try {
-        job = JSON.parse(row.raw);
-      } catch (e) {
-        Logger.error(`Marqueur illisible sur Reponses #${row.id} :`, e);
-        continue;
-      }
-
-      Logger.debug(`Reprise Reponses #${row.id} :`, job);
-      try {
-        if (!detailTableCache[job.detailTable]) {
-          detailTableCache[job.detailTable] = await GristApi.fetchTable(job.detailTable);
-        }
-        const detailTableData = detailTableCache[job.detailTable];
-        const linkCol = detailTableData[job.linkColumn] || [];
-        const alreadyExists = linkCol.includes(row.id);
-
-        if (!alreadyExists) {
-          const detailPayload = { [job.linkColumn]: row.id, ...job.detailValues };
-          await GristApi.addRecord(job.detailTable, detailPayload);
-        }
-        await GristApi.updateRecord(CFG.reponsesTable, row.id, { [CFG.pendingDetailColumn]: "" });
-        results.push({ success: true, reponseId: row.id, wasAlreadyDone: alreadyExists });
-      } catch (e) {
-        Logger.error(`Échec de la reprise pour Reponses #${row.id} :`, e);
-        results.push({ success: false, reponseId: row.id, error: e });
-      }
-    }
-    return results;
-  },
-};
-
-
-
-/* ============================================================
-   App — orchestration et gestion du flux en cascade
-   Agent -> Formulaire -> Champs dynamiques
-   ============================================================ */
-const App = {
-  agentsList: [],
-  formulairesList: [],
-  currentDetailFields: [],
-  currentFormulaire: null,
-
-  async init() {
-    try {
-      // Reprise en priorité absolue : si une ou plusieurs écritures "détail"
-      // sont restées en suspens suite à une coupure de session précédente,
-      // on les termine avant même de charger le reste — sinon l'intervention
-      // resterait orpheline (Reponses créée, table détail jamais renseignée).
-      const resumedResults = await ReponseService.resumeAllPending();
-      if (resumedResults.length > 0) {
-        const succeeded = resumedResults.filter(r => r.success);
-        const failed = resumedResults.filter(r => !r.success);
-        const parts = [];
-        if (succeeded.length > 0) {
-          parts.push(`✅ ${succeeded.length} intervention(s) interrompue(s) finalisée(s) automatiquement (Réponse #${succeeded.map(r => r.reponseId).join(", #")}).`);
-        }
-        if (failed.length > 0) {
-          parts.push(`⚠️ ${failed.length} intervention(s) toujours en attente (Réponse #${failed.map(r => r.reponseId).join(", #")}) — nouvel essai au prochain chargement.`);
-        }
-        UiFeedback.showStatus(parts.join(" "), failed.length > 0 ? "warn" : "success");
-      }
-
-      const [agents, formulaires] = await Promise.all([
-        AgentRepository.loadAll(),
-        FormulaireCatalog.loadAll(),
-      ]);
-      this.agentsList = agents;
-      this.formulairesList = formulaires.filter(f => f.actif);
-
-      this.populateAgentSelect();
-      document.getElementById("formSubtitle").textContent =
-        "Choisissez votre profil puis le formulaire à remplir.";
-
-      // Expérimentation isolée, non bloquante : tentative d'identification
-      // automatique de l'utilisateur connecté. N'affecte rien d'autre —
-      // juste un test consigné en console pour l'instant.
-      GristApi.whoAmI()
-        .then(profile => Logger.debug("[whoAmI] Succès, profil obtenu :", profile))
-        .catch(e => Logger.debug("[whoAmI] Échec (attendu si l'endpoint n'existe pas) :", e.message));
-      document.getElementById("mainForm").style.display = "block";
-
-      document.getElementById("field___agent").addEventListener("change", () => this.onAgentChange());
-      document.getElementById("field___formulaire").addEventListener("change", () => this.onFormulaireChange());
-      document.getElementById("mainForm").addEventListener("submit", (evt) => this.onSubmit(evt));
-
-      const dateEl = document.getElementById("field___date");
-      dateEl.value = new Date().toISOString().slice(0, 10);
-    } catch (e) {
-      UiFeedback.showStatus("Erreur au chargement : " + (e && e.message ? e.message : e), "error");
-      Logger.error(e);
-    }
-  },
-
-  populateAgentSelect() {
-    const sel = document.getElementById("field___agent");
-    sel.innerHTML = `<option value="">— Sélectionner —</option>` +
-      this.agentsList.map(a => `<option value="${a.id}">${escapeHtml(a.label)}</option>`).join("");
-  },
-
-  onAgentChange() {
-    const agentId = Number(document.getElementById("field___agent").value) || null;
-    const agent = this.agentsList.find(a => a.id === agentId);
-
-    document.getElementById("siteServiceDisplay").textContent = agent
-      ? (agent.serviceDisplay || "—")
-      : "Sélectionnez un agent";
-
-    const fsFormulaire = document.getElementById("fsFormulaire");
-    const formulaireSel = document.getElementById("field___formulaire");
-    this.currentFormulaire = null;
-    this.resetDetailSection();
-
-    if (!agent) {
-      fsFormulaire.disabled = true;
-      formulaireSel.innerHTML = `<option value="">— Sélectionnez d'abord un agent —</option>`;
-      return;
-    }
-
-    const accessibles = this.formulairesList.filter(f => agent.formulaireIds.includes(f.id));
-    if (accessibles.length === 0) {
-      fsFormulaire.disabled = true;
-      formulaireSel.innerHTML = `<option value="">— Aucun formulaire affecté à cet agent —</option>`;
-      UiFeedback.showStatus("Cet agent n'a aucun formulaire affecté (voir Agents.Formulaires_Accessibles).", "warn");
-      return;
-    }
-
-    UiFeedback.showStatus("", "");
-    fsFormulaire.disabled = false;
-    formulaireSel.innerHTML = `<option value="">— Sélectionner —</option>` +
-      accessibles.map(f => `<option value="${f.id}">${escapeHtml(f.titre)}</option>`).join("");
-  },
-
-  async onFormulaireChange() {
-    const formulaireId = Number(document.getElementById("field___formulaire").value) || null;
-    this.currentFormulaire = this.formulairesList.find(f => f.id === formulaireId) || null;
-    this.resetDetailSection();
-
-    if (!this.currentFormulaire) return;
-    if (!this.currentFormulaire.tableTechnique) {
-      UiFeedback.showStatus(
-        `Le formulaire "${this.currentFormulaire.titre}" n'a pas de Table_Technique renseignée dans Formulaires.`,
-        "error"
-      );
-      return;
-    }
-
-    UiFeedback.showStatus("Chargement des champs du formulaire…", "");
-    try {
-      const result = await SchemaService.getFieldsForTable(this.currentFormulaire.tableTechnique);
-      this.currentDetailFields = result.fields;
-      Logger.debug(
-        `Champs détectés pour "${this.currentFormulaire.tableTechnique}" (${this.currentDetailFields.length}) :`,
-        this.currentDetailFields
-      );
-      this.renderDetailFields();
-
-      if (result.skipped.length > 0) {
-        const details = result.skipped.map(s => `${s.colId} (${s.reason})`).join(", ");
-        UiFeedback.showStatus(
-          `⚠️ Formulaire chargé, mais ${result.skipped.length} colonne(s) non affichée(s) automatiquement : ${details}. ` +
-          `À vérifier dans Grist (type de colonne non pris en charge, ou colonne jamais renseignée donc considérée comme formule).`,
-          "warn"
-        );
-      } else {
-        UiFeedback.showStatus("", "");
-      }
-    } catch (e) {
-      UiFeedback.showStatus("Erreur lors du chargement du formulaire : " + (e && e.message ? e.message : e), "error");
-      Logger.error(e);
-    }
-  },
-
-  renderDetailFields() {
-    const fs = document.getElementById("fsDetail");
-    const container = document.getElementById("detailFieldsContainer");
-    document.getElementById("fsDetailLegend").textContent = this.currentFormulaire.titre;
-    container.innerHTML = "";
-
-    if (this.currentDetailFields.length === 0) {
-      container.className = "empty-hint";
-      container.textContent = "Aucun champ détecté automatiquement pour ce formulaire (voir la console pour le détail).";
-      fs.disabled = true;
-      return;
-    }
-
-    container.className = "";
-    this.currentDetailFields.forEach(f => container.appendChild(FieldTypes[f.type].render(f)));
-    fs.disabled = false;
-  },
-
-  resetDetailSection() {
-    this.currentDetailFields = [];
-    const fs = document.getElementById("fsDetail");
-    fs.disabled = true;
-    document.getElementById("fsDetailLegend").textContent = "Détails";
-    const container = document.getElementById("detailFieldsContainer");
-    container.className = "empty-hint";
-    container.textContent = "Sélectionnez un formulaire pour afficher ses champs.";
-  },
-
-  async onSubmit(evt) {
-    evt.preventDefault();
-    UiFeedback.clearFieldErrors();
-
-    const agentId = Number(document.getElementById("field___agent").value) || null;
-    const dateEl = document.getElementById("field___date");
-    const errors = [];
-
-    if (!agentId) errors.push("Agent requis.");
-    if (!this.currentFormulaire) errors.push("Formulaire requis.");
-    if (!dateEl.value) errors.push("Date requise.");
-
-    const detail = this.currentDetailFields.length
-      ? Validator.validate(this.currentDetailFields)
-      : { values: {}, errors: [] };
-    detail.errors.forEach(({ field, message }) => UiFeedback.markFieldError(field, message));
-
-    if (errors.length > 0 || detail.errors.length > 0) {
-      UiFeedback.showStatus(errors.concat("Merci de compléter les champs obligatoires.").join(" "), "error");
-      return;
-    }
-
-    const submitBtn = document.getElementById("submitBtn");
-    submitBtn.disabled = true;
-    UiFeedback.showStatus("Enregistrement en cours…", "");
-
-    try {
-      // Upload des éventuelles pièces jointes, AVANT ReponseService.submit :
-      // les IDs générés doivent être résolus et présents dans detailValues
-      // avant que le job de reprise ne soit sauvegardé (voir
-      // ReponseService.submit), pour que la reprise automatique n'ait pas
-      // à refaire l'upload en cas d'interruption de session.
-      const attachmentUploadFailures = [];
-      for (const f of this.currentDetailFields) {
-        if (f.type !== "attachment") continue;
-        const files = detail.values[f.name];
-        if (files && files.length > 0) {
-          try {
-            UiFeedback.showStatus(`Envoi de la pièce jointe "${f.label}"…`, "");
-            const attachmentIds = await GristApi.uploadAttachments(files);
-            // Format de liste attendu par Grist en écriture : ["L", id1, id2, ...]
-            detail.values[f.name] = ["L", ...attachmentIds];
-          } catch (e) {
-            Logger.error(`Échec upload "${f.label}" :`, e);
-            attachmentUploadFailures.push(f.label);
-            detail.values[f.name] = null;
-          }
-        } else {
-          detail.values[f.name] = null;
-        }
-      }
-
-      const dateValue = Math.floor(new Date(dateEl.value).getTime() / 1000);
-      UiFeedback.showStatus("Enregistrement en cours…", "");
-      await ReponseService.submit({
-        agentId,
-        formulaireId: this.currentFormulaire.id,
-        date: dateValue,
-        detailTable: this.currentFormulaire.tableTechnique,
-        detailValues: detail.values,
-      });
-
-      const warningSuffix = attachmentUploadFailures.length
-        ? ` (⚠️ pièce(s) jointe(s) non envoyée(s) : ${attachmentUploadFailures.join(", ")} — à ajouter manuellement)`
-        : "";
-      UiFeedback.showStatus("Intervention enregistrée avec succès." + warningSuffix, attachmentUploadFailures.length ? "warn" : "success");
-      evt.target.reset();
-      this.currentFormulaire = null;
-      this.resetDetailSection();
-      document.getElementById("siteServiceDisplay").textContent = "Sélectionnez un agent";
-      document.getElementById("fsFormulaire").disabled = true;
-      dateEl.value = new Date().toISOString().slice(0, 10);
-    } catch (e) {
-      const detailMsg = (e && e.message) ? e.message : JSON.stringify(e);
-      UiFeedback.showStatus("Erreur lors de l'enregistrement : " + detailMsg, "error");
-      Logger.error(e);
-    } finally {
-      submitBtn.disabled = false;
-    }
-  },
-};
-
-grist.ready({ requiredAccess: "full" });
-App.init();
-</script>
-
-</body>
-</html>
+Localization initialized in 13ms main.bundle.js:2:60911
+gristConfigCache getWorker[byVvknBDyb7RUcFmNTbmNT]: found and deleted value https://grist.aucarre.tech/dw/10-244-216-149/v/unknown/ main.bundle.js:2:566810
+GristWSConnection connecting to: wss://grist.aucarre.tech/dw/10-244-216-149/v/unknown/o/docs?clientId=72c3e5ba8bae2752&counter=94&newClient=1&browserSettings=%7B%22timezone%22%3A%22Europe%2FParis%22%7D&user= main.bundle.js:2:145584
+DocPageModel _openDoc starting for byVvknBDyb7R (mode undefined) main.bundle.js:2:970168
+gristConfigCache getDoc[byVvknBDyb7R]: not found main.bundle.js:2:566587
+GristWSConnection: onopen: Connected main.bundle.js:2:145584
+GristWSConnection: onmessage (113 bytes) main.bundle.js:2:145584
+GristWSConnection established: clientId 72c3e5ba8bae2752 counter 94 needReload false main.bundle.js:2:145584
+Comm: Triggering event clientConnect main.bundle.js:2:155461
+App clientConnect event: needReload false version unknown main.bundle.js:2:909796
+Comm.useDocConnection(byVvknBDyb7RUcFmNTbmNT): useCount now 1 main.bundle.js:2:152766
+Comm request #0 openDoc 
+Array [ "byVvknBDyb7RUcFmNTbmNT", {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":0,"method":"openDoc","args":["byVvknBDyb7RUcFmNTbmNT",{"openMode":"default","originalUrlId":"byVvknBDyb7R"}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (66900 bytes) main.bundle.js:2:145584
+Comm response #0 openDoc OK main.bundle.js:2:155175
+Comm.useDocConnection(byVvknBDyb7RUcFmNTbmNT): useCount now 2 main.bundle.js:2:152766
+RECEIVED DOC RESPONSE 
+Object { docFD: 0, clientId: "72c3e5ba8bae2752", doc: {…}, log: (100) […], recoveryMode: false, user: {…}, docUsage: {…}, isTimingOn: false }
+GristDoc.bundle.js:1:599883
+Comm request #1 listActiveUserProfiles 
+Array [ 0 ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":1,"method":"listActiveUserProfiles","args":[0]} main.bundle.js:2:145584
+BaseView viewSection 70 (Reponses_summary_Formulaire_Service) lastCursorPos {"rowIndex":0,"fieldIndex":0} 958.bundle.js:1:383103
+Comm request #2 fetchTable 
+Array [ 0, "Reponses_summary_Formulaire_Service" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":2,"method":"fetchTable","args":[0,"Reponses_summary_Formulaire_Service"]} main.bundle.js:2:145584
+BaseView viewSection 71 (Reponses_summary_Agent_Formulaire_Service) lastCursorPos {"rowIndex":0,"fieldIndex":0} 958.bundle.js:1:383103
+Comm request #3 fetchTable 
+Array [ 0, "Reponses_summary_Agent_Formulaire_Service" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":3,"method":"fetchTable","args":[0,"Reponses_summary_Agent_Formulaire_Service"]} main.bundle.js:2:145584
+BaseView viewSection 89 (Reponses_summary_Service) lastCursorPos {"rowIndex":0,"fieldIndex":0} 958.bundle.js:1:383103
+Comm request #4 fetchTable 
+Array [ 0, "Reponses_summary_Service" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":4,"method":"fetchTable","args":[0,"Reponses_summary_Service"]} main.bundle.js:2:145584
+BaseView viewSection 96 (Reponses_summary_Date_Intervention_Service) lastCursorPos {"rowIndex":0,"fieldIndex":0} 958.bundle.js:1:383103
+Comm request #5 fetchTable 
+Array [ 0, "Reponses_summary_Date_Intervention_Service" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":5,"method":"fetchTable","args":[0,"Reponses_summary_Date_Intervention_Service"]} main.bundle.js:2:145584
+BaseView viewSection 99 (Reponses_summary_Site) lastCursorPos {"rowIndex":0,"fieldIndex":0} 958.bundle.js:1:383103
+Comm request #6 fetchTable 
+Array [ 0, "Reponses_summary_Site" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":6,"method":"fetchTable","args":[0,"Reponses_summary_Site"]} main.bundle.js:2:145584
+BaseView viewSection 121 (Reponses_summary_Service_Site) lastCursorPos {"rowIndex":0,"fieldIndex":0} 958.bundle.js:1:383103
+Comm request #7 fetchTable 
+Array [ 0, "Reponses_summary_Service_Site" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":7,"method":"fetchTable","args":[0,"Reponses_summary_Service_Site"]} main.bundle.js:2:145584
+Comm request #8 getUsersForViewAs 
+Array [ 0 ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":8,"method":"getUsersForViewAs","args":[0]} main.bundle.js:2:145584
+Comm.releaseDocConnection(byVvknBDyb7RUcFmNTbmNT): useCount now 1 main.bundle.js:2:152907
+GristWSConnection: onmessage (124 bytes) main.bundle.js:2:145584
+GristWSConnection skipping duplicate 'clientConnect' message main.bundle.js:2:145584
+GristWSConnection: onmessage (34 bytes) main.bundle.js:2:145584
+Comm response #1 listActiveUserProfiles OK main.bundle.js:2:155175
+GristWSConnection: onmessage (545 bytes) main.bundle.js:2:145584
+Comm response #2 fetchTable OK main.bundle.js:2:155175
+GristWSConnection: onmessage (1103 bytes) main.bundle.js:2:145584
+Comm response #3 fetchTable OK main.bundle.js:2:155175
+GristWSConnection: onmessage (288 bytes) main.bundle.js:2:145584
+Comm response #4 fetchTable OK main.bundle.js:2:155175
+GristWSConnection: onmessage (638 bytes) main.bundle.js:2:145584
+Comm response #5 fetchTable OK main.bundle.js:2:155175
+GristWSConnection: onmessage (224 bytes) main.bundle.js:2:145584
+Comm response #6 fetchTable OK main.bundle.js:2:155175
+GristWSConnection: onmessage (385 bytes) main.bundle.js:2:145584
+Comm response #7 fetchTable OK main.bundle.js:2:155175
+GristWSConnection: onmessage (2218 bytes) main.bundle.js:2:145584
+Comm response #8 getUsersForViewAs OK main.bundle.js:2:155175
+loadState https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/21 main.bundle.js:2:1266307
+BaseView viewSection 115 (Formulaires) lastCursorPos {"rowIndex":0,"fieldIndex":0} 958.bundle.js:1:383103
+Comm request #9 fetchTable 
+Array [ 0, "Formulaires" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":9,"method":"fetchTable","args":[0,"Formulaires"]} main.bundle.js:2:145584
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:653569
+GristWSConnection: onmessage (481 bytes) main.bundle.js:2:145584
+Comm response #9 fetchTable OK main.bundle.js:2:155175
+Rpc sending Custom 4 main.bundle.js:2:131145
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Rpc for GristDocAPI.fetchTable#2: RPC_ONCALL main.bundle.js:2:134258
+Comm request #10 fetchTable 
+Array [ 0, "Agents" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":10,"method":"fetchTable","args":[0,"Agents"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#3: RPC_ONCALL main.bundle.js:2:134258
+Comm request #11 fetchTable 
+Array [ 0, "Sites" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":11,"method":"fetchTable","args":[0,"Sites"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#4: RPC_ONCALL main.bundle.js:2:134258
+Comm request #12 fetchTable 
+Array [ 0, "Services" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":12,"method":"fetchTable","args":[0,"Services"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#5: RPC_ONCALL main.bundle.js:2:134258
+Comm request #13 fetchTable 
+Array [ 0, "Formulaires" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":13,"method":"fetchTable","args":[0,"Formulaires"]} main.bundle.js:2:145584
+GristWSConnection: onmessage (482 bytes) main.bundle.js:2:145584
+Comm response #13 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#5: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (1481 bytes) main.bundle.js:2:145584
+Comm response #10 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#2: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (204 bytes) main.bundle.js:2:145584
+Comm response #11 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#3: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (367 bytes) main.bundle.js:2:145584
+Comm response #12 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#4: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection.send[true] {"beat":"alive","url":"https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/21","docId":"byVvknBDyb7RUcFmNTbmNT"} 5 main.bundle.js:2:145584
+GristWSConnection: onmessage (405 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUsage main.bundle.js:2:155461
+loadState https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/13 main.bundle.js:2:1266307
+While disposing e, error disposing Function: TypeError: _d().domDispose is not a function main.bundle.js:2:645018
+BaseView viewSection 35 (Reponses) lastCursorPos {"rowIndex":0,"fieldIndex":0} 958.bundle.js:1:383103
+Comm request #14 fetchTable 
+Array [ 0, "Reponses" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":14,"method":"fetchTable","args":[0,"Reponses"]} main.bundle.js:2:145584
+GristWSConnection: onmessage (2526 bytes) main.bundle.js:2:145584
+Comm response #14 fetchTable OK main.bundle.js:2:155175
+GristWSConnection.send[true] {"beat":"alive","url":"https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/13","docId":"byVvknBDyb7RUcFmNTbmNT"} 5 main.bundle.js:2:145584
+GristWSConnection: onmessage (405 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUsage main.bundle.js:2:155461
+loadState https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/21 main.bundle.js:2:1266307
+BaseView viewSection 115 (Formulaires) lastCursorPos {"rowId":1,"rowIndex":0,"fieldIndex":0,"sectionId":115} 958.bundle.js:1:383103
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:653569
+Rpc sending Custom 4 main.bundle.js:2:131145
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Rpc for GristDocAPI.fetchTable#2: RPC_ONCALL main.bundle.js:2:134258
+Comm request #15 fetchTable 
+Array [ 0, "Agents" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":15,"method":"fetchTable","args":[0,"Agents"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#3: RPC_ONCALL main.bundle.js:2:134258
+Comm request #16 fetchTable 
+Array [ 0, "Sites" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":16,"method":"fetchTable","args":[0,"Sites"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#4: RPC_ONCALL main.bundle.js:2:134258
+Comm request #17 fetchTable 
+Array [ 0, "Services" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":17,"method":"fetchTable","args":[0,"Services"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#5: RPC_ONCALL main.bundle.js:2:134258
+Comm request #18 fetchTable 
+Array [ 0, "Formulaires" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":18,"method":"fetchTable","args":[0,"Formulaires"]} main.bundle.js:2:145584
+GristWSConnection: onmessage (1481 bytes) main.bundle.js:2:145584
+Comm response #15 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#2: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (204 bytes) main.bundle.js:2:145584
+Comm response #16 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#3: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (367 bytes) main.bundle.js:2:145584
+Comm response #17 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#4: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (482 bytes) main.bundle.js:2:145584
+Comm response #18 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#5: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection.send[true] {"beat":"alive","url":"https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/21","docId":"byVvknBDyb7RUcFmNTbmNT"} 5 main.bundle.js:2:145584
+GristWSConnection: onmessage (405 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUsage main.bundle.js:2:155461
+GristWSConnection.send[true] {"beat":"alive","url":"https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/21","docId":"byVvknBDyb7RUcFmNTbmNT"} main.bundle.js:2:145584
+loadState https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/13 main.bundle.js:2:1266307
+While disposing e, error disposing Function: TypeError: _d().domDispose is not a function main.bundle.js:2:645018
+BaseView viewSection 35 (Reponses) lastCursorPos {"rowId":1,"rowIndex":0,"fieldIndex":0,"sectionId":35} 958.bundle.js:1:383103
+Comm request #19 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":19,"method":"applyUserActions","args":[0,[["AddColumn","Reponses",null,{"_position":null}]],{"desc":"Insert column","linkId":null}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (1858 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2275 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "AddColumn", "Reponses", "A", {…} ]
+GristDoc.bundle.js:1:623336
+GristDoc applying #1 
+Array(4) [ "AddRecord", "_grist_Tables_column", 367, {…} ]
+GristDoc.bundle.js:1:623336
+GristDoc applying #2 
+Array(4) [ "AddRecord", "_grist_Views_section_field", 605, {…} ]
+GristDoc.bundle.js:1:623336
+GristDoc applying #3 
+Array(4) [ "AddRecord", "_grist_Views_section_field", 606, {…} ]
+GristDoc.bundle.js:1:623336
+GristWSConnection: onmessage (194 bytes) main.bundle.js:2:145584
+Comm response #19 applyUserActions OK main.bundle.js:2:155175
+Comm request #20 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":20,"method":"applyUserActions","args":[0,[["AddRecord","_grist_Views_section_field",null,{"colRef":367,"parentId":35,"parentPos":null}]],{"desc":null,"linkId":2811}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (997 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2277 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "AddRecord", "_grist_Views_section_field", 607, {…} ]
+GristDoc.bundle.js:1:623336
+GristWSConnection: onmessage (171 bytes) main.bundle.js:2:145584
+Comm response #20 applyUserActions OK main.bundle.js:2:155175
+Comm request #21 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":21,"method":"applyUserActions","args":[0,[["UpdateRecord","_grist_Tables_column",367,{"label":"Detail_En_Attente"}]],{}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (1153 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2279 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "RenameColumn", "Reponses", "A", "Detail_En_Attente" ]
+GristDoc.bundle.js:1:623336
+RowModel #RenameColumn Reponses A Detail_En_Attente: already exists 16 main.bundle.js:2:211001
+GristDoc applying #1 
+Array(4) [ "UpdateRecord", "_grist_Tables_column", 367, {…} ]
+GristDoc.bundle.js:1:623336
+GristWSConnection: onmessage (172 bytes) main.bundle.js:2:145584
+Comm response #21 applyUserActions OK main.bundle.js:2:155175
+Missing translation for key: FieldBuilder.Field in {{count}} views main.bundle.js:2:62425
+Missing translation for key: menus.TextBox main.bundle.js:2:62425
+Comm request #22 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":22,"method":"applyUserActions","args":[0,[["UpdateRecord","_grist_Tables_column",367,{"type":"Text"}]],{"desc":"Changement du type de colonne","linkId":null}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (1478 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2281 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "ModifyColumn", "Reponses", "Detail_En_Attente", {…} ]
+GristDoc.bundle.js:1:623336
+GristDoc applying #1 
+Array(4) [ "UpdateRecord", "_grist_Tables_column", 367, {…} ]
+GristDoc.bundle.js:1:623336
+GristDoc applying #2 
+Array(4) [ "BulkUpdateRecord", "Reponses", (15) […], {…} ]
+GristDoc.bundle.js:1:623336
+GristWSConnection: onmessage (172 bytes) main.bundle.js:2:145584
+Comm response #22 applyUserActions OK main.bundle.js:2:155175
+Comm request #23 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":23,"method":"applyUserActions","args":[0,[["BulkUpdateRecord","_grist_Tables_column",[367],{"isFormula":[false],"recalcWhen":[1],"recalcDeps":[null]}]],{}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (1006 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2283 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "ModifyColumn", "Reponses", "Detail_En_Attente", {…} ]
+GristDoc.bundle.js:1:623336
+GristDoc applying #1 
+Array(4) [ "UpdateRecord", "_grist_Tables_column", 367, {…} ]
+GristDoc.bundle.js:1:623336
+GristWSConnection: onmessage (172 bytes) main.bundle.js:2:145584
+Comm response #23 applyUserActions OK main.bundle.js:2:155175
+Comm request #24 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":24,"method":"applyUserActions","args":[0,[["UpdateRecord","_grist_Views_section_field",607,{"width":133}]],{}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (885 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2285 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "UpdateRecord", "_grist_Views_section_field", 607, {…} ]
+GristDoc.bundle.js:1:623336
+GristWSConnection: onmessage (172 bytes) main.bundle.js:2:145584
+Comm response #24 applyUserActions OK main.bundle.js:2:155175
+GristWSConnection.send[true] {"beat":"alive","url":"https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/13","docId":"byVvknBDyb7RUcFmNTbmNT"} main.bundle.js:2:145584
+loadState https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/21 main.bundle.js:2:1266307
+BaseView viewSection 115 (Formulaires) lastCursorPos {"rowId":1,"rowIndex":0,"fieldIndex":0,"sectionId":115} 958.bundle.js:1:383103
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:653569
+Rpc sending Custom 4 main.bundle.js:2:131145
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Rpc for GristDocAPI.fetchTable#2: RPC_ONCALL main.bundle.js:2:134258
+Comm request #25 fetchTable 
+Array [ 0, "Agents" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":25,"method":"fetchTable","args":[0,"Agents"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#3: RPC_ONCALL main.bundle.js:2:134258
+Comm request #26 fetchTable 
+Array [ 0, "Sites" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":26,"method":"fetchTable","args":[0,"Sites"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#4: RPC_ONCALL main.bundle.js:2:134258
+Comm request #27 fetchTable 
+Array [ 0, "Services" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":27,"method":"fetchTable","args":[0,"Services"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#5: RPC_ONCALL main.bundle.js:2:134258
+Comm request #28 fetchTable 
+Array [ 0, "Formulaires" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":28,"method":"fetchTable","args":[0,"Formulaires"]} main.bundle.js:2:145584
+GristWSConnection: onmessage (1481 bytes) main.bundle.js:2:145584
+Comm response #25 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#2: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (204 bytes) main.bundle.js:2:145584
+Comm response #26 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#3: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (367 bytes) main.bundle.js:2:145584
+Comm response #27 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#4: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (482 bytes) main.bundle.js:2:145584
+Comm response #28 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#5: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection.send[true] {"beat":"alive","url":"https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/21","docId":"byVvknBDyb7RUcFmNTbmNT"} main.bundle.js:2:145584
+Comm request #29 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":29,"method":"applyUserActions","args":[0,[["UpdateRecord","_grist_Views_section",115,{"parentKey":"record"}]],{"desc":"Section liée Widget Agent sauvegardée dans la page Widget Agent","linkId":null}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (971 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2291 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "UpdateRecord", "_grist_Views_section", 115, {…} ]
+GristDoc.bundle.js:1:623336
+While disposing e, error disposing Function: TypeError: _d().domDispose is not a function main.bundle.js:2:645018
+BaseView viewSection 115 (Formulaires) lastCursorPos {"rowId":1,"rowIndex":0,"fieldIndex":0,"sectionId":115} 958.bundle.js:1:383103
+GristWSConnection: onmessage (172 bytes) main.bundle.js:2:145584
+Comm response #29 applyUserActions OK main.bundle.js:2:155175
+Comm request #30 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":30,"method":"applyUserActions","args":[0,[["UpdateRecord","_grist_Views_section",115,{"parentKey":"custom"}]],{"desc":"Section liée Widget Agent sauvegardée dans la page Widget Agent","linkId":null}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (971 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2293 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "UpdateRecord", "_grist_Views_section", 115, {…} ]
+GristDoc.bundle.js:1:623336
+BaseView viewSection 115 (Formulaires) lastCursorPos {"rowId":1,"rowIndex":0,"fieldIndex":0,"sectionId":115} 958.bundle.js:1:383103
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:653569
+GristWSConnection: onmessage (172 bytes) main.bundle.js:2:145584
+Comm response #30 applyUserActions OK main.bundle.js:2:155175
+Rpc sending Custom 4 main.bundle.js:2:131145
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Rpc for GristDocAPI.fetchTable#2: RPC_ONCALL main.bundle.js:2:134258
+Comm request #31 fetchTable 
+Array [ 0, "Agents" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":31,"method":"fetchTable","args":[0,"Agents"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#3: RPC_ONCALL main.bundle.js:2:134258
+Comm request #32 fetchTable 
+Array [ 0, "Sites" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":32,"method":"fetchTable","args":[0,"Sites"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#4: RPC_ONCALL main.bundle.js:2:134258
+Comm request #33 fetchTable 
+Array [ 0, "Services" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":33,"method":"fetchTable","args":[0,"Services"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#5: RPC_ONCALL main.bundle.js:2:134258
+Comm request #34 fetchTable 
+Array [ 0, "Formulaires" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":34,"method":"fetchTable","args":[0,"Formulaires"]} main.bundle.js:2:145584
+GristWSConnection: onmessage (1481 bytes) main.bundle.js:2:145584
+Comm response #31 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#2: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (204 bytes) main.bundle.js:2:145584
+Comm response #32 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#3: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (367 bytes) main.bundle.js:2:145584
+Comm response #33 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#4: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (482 bytes) main.bundle.js:2:145584
+Comm response #34 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#5: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:525082
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:525082
+Comm request #35 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":35,"method":"applyUserActions","args":[0,[["UpdateRecord","_grist_Views_section",115,{"options":"{\"verticalGridlines\":true,\"horizontalGridlines\":true,\"zebraStripes\":false,\"customView\":\"{\\\"mode\\\":\\\"url\\\",\\\"url\\\":\\\"https://nicolasschena-aucarre.github.io/Widget_Agent_EMMA40/widgetv3.html\\\",\\\"widgetDef\\\":null,\\\"access\\\":\\\"none\\\",\\\"pluginId\\\":\\\"\\\",\\\"sectionId\\\":\\\"\\\",\\\"renderAfterReady\\\":false,\\\"widgetId\\\":null,\\\"widgetOptions\\\":null,\\\"columnsMapping\\\":null}\",\"numFrozen\":0}"}]],{"desc":"Save selected custom widget","linkId":null}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (2257 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2299 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "UpdateRecord", "_grist_Views_section", 115, {…} ]
+GristDoc.bundle.js:1:623336
+GristWSConnection: onmessage (172 bytes) main.bundle.js:2:145584
+Comm response #35 applyUserActions OK main.bundle.js:2:155175
+Rpc sending Custom 2 main.bundle.js:2:131145
+Rpc for GristDocAPI.fetchTable#1: RPC_ONCALL main.bundle.js:2:134258
+Rpc for GristDocAPI.fetchTable#1: RPC_ONCALL_ERROR Access not granted. Current access level none main.bundle.js:2:134373
+Rpc sending RpcRespErr main.bundle.js:2:131145
+Rpc for CustomSectionAPI.configure#2: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.configure#2: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:525082
+Comm request #36 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":36,"method":"applyUserActions","args":[0,[["UpdateRecord","_grist_Views_section",115,{"options":"{\"verticalGridlines\":true,\"horizontalGridlines\":true,\"zebraStripes\":false,\"customView\":\"{\\\"mode\\\":\\\"url\\\",\\\"url\\\":\\\"https://nicolasschena-aucarre.github.io/Widget_Agent_EMMA40/widgetv3.html\\\",\\\"widgetDef\\\":null,\\\"access\\\":\\\"full\\\",\\\"pluginId\\\":\\\"\\\",\\\"sectionId\\\":\\\"\\\",\\\"renderAfterReady\\\":false,\\\"widgetId\\\":null,\\\"widgetOptions\\\":null,\\\"columnsMapping\\\":null}\",\"numFrozen\":0}"}]],{}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (2220 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2301 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "UpdateRecord", "_grist_Views_section", 115, {…} ]
+GristDoc.bundle.js:1:623336
+GristWSConnection: onmessage (172 bytes) main.bundle.js:2:145584
+Comm response #36 applyUserActions OK main.bundle.js:2:155175
+Rpc sending Custom 3 main.bundle.js:2:131145
+Rpc for GristDocAPI.fetchTable#1: RPC_ONCALL main.bundle.js:2:134258
+Comm request #37 fetchTable 
+Array [ 0, "Reponses" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":37,"method":"fetchTable","args":[0,"Reponses"]} main.bundle.js:2:145584
+Rpc for CustomSectionAPI.configure#2: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.configure#2: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (2593 bytes) main.bundle.js:2:145584
+Comm response #37 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#1: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Rpc for GristDocAPI.fetchTable#3: RPC_ONCALL main.bundle.js:2:134258
+Comm request #38 fetchTable 
+Array [ 0, "Agents" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":38,"method":"fetchTable","args":[0,"Agents"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#4: RPC_ONCALL main.bundle.js:2:134258
+Comm request #39 fetchTable 
+Array [ 0, "Sites" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":39,"method":"fetchTable","args":[0,"Sites"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#5: RPC_ONCALL main.bundle.js:2:134258
+Comm request #40 fetchTable 
+Array [ 0, "Services" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":40,"method":"fetchTable","args":[0,"Services"]} main.bundle.js:2:145584
+Rpc for GristDocAPI.fetchTable#6: RPC_ONCALL main.bundle.js:2:134258
+Comm request #41 fetchTable 
+Array [ 0, "Formulaires" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":41,"method":"fetchTable","args":[0,"Formulaires"]} main.bundle.js:2:145584
+GristWSConnection: onmessage (1481 bytes) main.bundle.js:2:145584
+Comm response #38 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#3: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (204 bytes) main.bundle.js:2:145584
+Comm response #39 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#4: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (367 bytes) main.bundle.js:2:145584
+Comm response #40 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#5: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (482 bytes) main.bundle.js:2:145584
+Comm response #41 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#6: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Rpc for GristDocAPI.getAccessToken#7: RPC_ONCALL main.bundle.js:2:134258
+Comm request #42 getAccessToken 
+Array [ 0, {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":42,"method":"getAccessToken","args":[0,{"readOnly":true}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (340 bytes) main.bundle.js:2:145584
+Comm response #42 getAccessToken OK main.bundle.js:2:155175
+Rpc for GristDocAPI.getAccessToken#7: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection.send[true] {"beat":"alive","url":"https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/21","docId":"byVvknBDyb7RUcFmNTbmNT"} main.bundle.js:2:145584
+GristWSConnection: onmessage (405 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUsage main.bundle.js:2:155461
+GristWSConnection.send[true] {"beat":"alive","url":"https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/21","docId":"byVvknBDyb7RUcFmNTbmNT"} 7 main.bundle.js:2:145584
+GristWSConnection: onmessage (405 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUsage main.bundle.js:2:155461
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:525082
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:525082
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:525082
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:525082
+Comm request #43 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":43,"method":"applyUserActions","args":[0,[["UpdateRecord","_grist_Views_section",115,{"options":"{\"verticalGridlines\":true,\"horizontalGridlines\":true,\"zebraStripes\":false,\"customView\":\"{\\\"mode\\\":\\\"url\\\",\\\"url\\\":null,\\\"widgetDef\\\":{\\\"name\\\":\\\"Custom widget builder\\\",\\\"url\\\":\\\"https://gristlabs.github.io/grist-widget/custom-widget-builder/index.html\\\",\\\"widgetId\\\":\\\"@berhalak/custom-widget-builder\\\",\\\"published\\\":true,\\\"accessLevel\\\":\\\"none\\\",\\\"renderAfterReady\\\":true,\\\"description\\\":\\\"Build custom widgets with HTML and JavaScript, right inside Grist.\\\",\\\"isGristLabsMaintained\\\":false,\\\"authors\\\":[{\\\"name\\\":\\\"berhalak\\\",\\\"url\\\":\\\"https://github.com/berhalak\\\"}],\\\"lastUpdatedAt\\\":\\\"2024-10-11T13:58:02+02:00\\\",\\\"cleanText\\\":\\\"Custom widget builder Build custom widgets with HTML and JavaScript, right inside Grist. berhalak\\\"},\\\"access\\\":\\\"none\\\",\\\"pluginId\\\":\\\"\\\",\\\"sectionId\\\":\\\"\\\",\\\"renderAfterReady\\\":true,\\\"widgetId\\\":\\\"@berhalak/custom-widget-builder\\\",\\\"widgetOptions\\\":null,\\\"columnsMapping\\\":null}\",\"numFrozen\":0}"}]],{"desc":"Save selected custom widget","linkId":null}]} main.bundle.js:2:145584
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:651109
+GristWSConnection: onmessage (3543 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2311 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "UpdateRecord", "_grist_Views_section", 115, {…} ]
+GristDoc.bundle.js:1:623336
+GristWSConnection: onmessage (172 bytes) main.bundle.js:2:145584
+Comm response #43 applyUserActions OK main.bundle.js:2:155175
+Rpc sending Custom 3 main.bundle.js:2:131145
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 1 main.bundle.js:2:134373
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Rpc sending Custom main.bundle.js:2:131145
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:525082
+Comm request #44 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":44,"method":"applyUserActions","args":[0,[["UpdateRecord","_grist_Views_section",115,{"options":"{\"verticalGridlines\":true,\"horizontalGridlines\":true,\"zebraStripes\":false,\"customView\":\"{\\\"mode\\\":\\\"url\\\",\\\"url\\\":null,\\\"widgetDef\\\":{\\\"name\\\":\\\"Custom widget builder\\\",\\\"url\\\":\\\"https://gristlabs.github.io/grist-widget/custom-widget-builder/index.html\\\",\\\"widgetId\\\":\\\"@berhalak/custom-widget-builder\\\",\\\"published\\\":true,\\\"accessLevel\\\":\\\"none\\\",\\\"renderAfterReady\\\":true,\\\"description\\\":\\\"Build custom widgets with HTML and JavaScript, right inside Grist.\\\",\\\"isGristLabsMaintained\\\":false,\\\"authors\\\":[{\\\"name\\\":\\\"berhalak\\\",\\\"url\\\":\\\"https://github.com/berhalak\\\"}],\\\"lastUpdatedAt\\\":\\\"2024-10-11T13:58:02+02:00\\\",\\\"cleanText\\\":\\\"Custom widget builder Build custom widgets with HTML and JavaScript, right inside Grist. berhalak\\\"},\\\"access\\\":\\\"full\\\",\\\"pluginId\\\":\\\"\\\",\\\"sectionId\\\":\\\"\\\",\\\"renderAfterReady\\\":true,\\\"widgetId\\\":\\\"@berhalak/custom-widget-builder\\\",\\\"widgetOptions\\\":null,\\\"columnsMapping\\\":null}\",\"numFrozen\":0}"}]],{}]} main.bundle.js:2:145584
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:651109
+GristWSConnection: onmessage (4149 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2313 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "UpdateRecord", "_grist_Views_section", 115, {…} ]
+GristDoc.bundle.js:1:623336
+GristWSConnection: onmessage (172 bytes) main.bundle.js:2:145584
+Comm response #44 applyUserActions OK main.bundle.js:2:155175
+Cette page est en mode de compatibilité (quirks). La mise en page peut en être affectée. Pour le mode standard, utilisez « <!DOCTYPE html> ». index.html
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending Ready grist-plugin-api.ts:386:15
+Rpc sending Custom 3 main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending Custom grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.configure#1: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Rpc sending Custom 3 main.bundle.js:2:131145
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 1 main.bundle.js:2:134373
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.configure#1: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending Custom grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 1 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedTable#2: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedRecord#3: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 2 main.bundle.js:2:134373
+Rpc for GristView.fetchSelectedTable#2: RPC_ONCALL main.bundle.js:2:134258
+Rpc for GristView.fetchSelectedTable#2: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 3 main.bundle.js:2:134373
+Rpc for GristView.fetchSelectedRecord#3: RPC_ONCALL main.bundle.js:2:134258
+Rpc for GristView.fetchSelectedRecord#3: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 2 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 3 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.mappings#4: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 4 main.bundle.js:2:134373
+Rpc for CustomSectionAPI.mappings#4: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.mappings#4: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 4 grist-plugin-api.ts:389:15
+Rpc for editOptions.invoke#1: RPC_CALLING main.bundle.js:2:134258
+Rpc sending RpcCall: editOptions.invoke#1 main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for editOptions.invoke#1: RPC_ONCALL grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for editOptions.invoke#1: RPC_ONCALL_OK grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespData grist-plugin-api.ts:386:15
+Rpc for editOptions.invoke#1: RPC_RESULT_OK main.bundle.js:2:134258
+Un accès partitionné à un cookie ou au stockage a été fourni à « https://gristlabs.github.io/grist-widget/custom-widget-builder/index.html?access=full&readonly=false&culture=fr-FR&language=en-US&timeZone=Europe%2FParis&currency=USD » car il est chargé dans le contexte tiers et le partitionnement d’état dynamique est activé. editor.main.js:59:32792
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for WidgetAPI.setOptions#1: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: WidgetAPI.setOptions#1 grist-plugin-api.ts:386:15
+Rpc for WidgetAPI.setOptions#1: RPC_ONCALL main.bundle.js:2:134258
+Rpc for WidgetAPI.setOptions#1: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Rpc sending Custom main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for WidgetAPI.setOptions#1: RPC_RESULT_OK grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending Ready grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#1: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.fetchTable#1 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.configure#2: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: CustomSectionAPI.configure#2 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#1: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.configure#2: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Rpc sending Custom main.bundle.js:2:131145
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 1 main.bundle.js:2:134373
+Rpc sending Custom 2 main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending Custom grist-plugin-api.ts:386:15
+Rpc for GristDocAPI.fetchTable#1: RPC_ONCALL main.bundle.js:2:134258
+Comm request #45 fetchTable 
+Array [ 0, "Reponses" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":45,"method":"fetchTable","args":[0,"Reponses"]} main.bundle.js:2:145584
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 2 main.bundle.js:2:134373
+Rpc for CustomSectionAPI.configure#2: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.configure#2: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending Custom grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedTable#3: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristView.fetchSelectedTable#3 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedRecord#4: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristView.fetchSelectedRecord#4 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 2 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedTable#3: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedRecord#4: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 3 main.bundle.js:2:134373
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.configure#2: RPC_RESULT_OK grist-plugin-api.ts:386:15
+Rpc for GristView.fetchSelectedTable#3: RPC_ONCALL main.bundle.js:2:134258
+Rpc for GristView.fetchSelectedTable#3: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 4 main.bundle.js:2:134373
+Rpc for GristView.fetchSelectedRecord#4: RPC_ONCALL main.bundle.js:2:134258
+Rpc for GristView.fetchSelectedRecord#4: RPC_ONCALL_OK main.bundle.js:2:134258
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 3 grist-plugin-api.ts:389:15
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedTable#3: RPC_RESULT_OK grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.mappings#5: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: CustomSectionAPI.mappings#5 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.mappings#5: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 4 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedRecord#4: RPC_RESULT_OK grist-plugin-api.ts:386:15
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 5 main.bundle.js:2:134373
+Rpc for CustomSectionAPI.mappings#5: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.mappings#5: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 5 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.mappings#5: RPC_RESULT_OK grist-plugin-api.ts:386:15
+GristWSConnection: onmessage (2593 bytes) main.bundle.js:2:145584
+Comm response #45 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#1: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 1 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#1: RPC_RESULT_OK grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#6: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.fetchTable#6 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#7: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.fetchTable#7 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#8: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.fetchTable#8 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#9: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.fetchTable#9 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#6: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#7: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#8: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 6 main.bundle.js:2:134373
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#9: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+Rpc for GristDocAPI.fetchTable#6: RPC_ONCALL main.bundle.js:2:134258
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Comm request #46 fetchTable 
+Array [ 0, "Agents" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":46,"method":"fetchTable","args":[0,"Agents"]} main.bundle.js:2:145584
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 7 main.bundle.js:2:134373
+Rpc for GristDocAPI.fetchTable#7: RPC_ONCALL main.bundle.js:2:134258
+Comm request #47 fetchTable 
+Array [ 0, "Sites" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":47,"method":"fetchTable","args":[0,"Sites"]} main.bundle.js:2:145584
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 8 main.bundle.js:2:134373
+Rpc for GristDocAPI.fetchTable#8: RPC_ONCALL main.bundle.js:2:134258
+Comm request #48 fetchTable 
+Array [ 0, "Services" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":48,"method":"fetchTable","args":[0,"Services"]} main.bundle.js:2:145584
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 9 main.bundle.js:2:134373
+Rpc for GristDocAPI.fetchTable#9: RPC_ONCALL main.bundle.js:2:134258
+Comm request #49 fetchTable 
+Array [ 0, "Formulaires" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":49,"method":"fetchTable","args":[0,"Formulaires"]} main.bundle.js:2:145584
+GristWSConnection: onmessage (1481 bytes) main.bundle.js:2:145584
+Comm response #46 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#6: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (204 bytes) main.bundle.js:2:145584
+Comm response #47 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#7: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 6 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#6: RPC_RESULT_OK grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 7 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#7: RPC_RESULT_OK grist-plugin-api.ts:386:15
+GristWSConnection: onmessage (367 bytes) main.bundle.js:2:145584
+Comm response #48 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#8: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (482 bytes) main.bundle.js:2:145584
+Comm response #49 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#9: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 8 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#8: RPC_RESULT_OK grist-plugin-api.ts:386:15
+[Widget] Colonnes Agents : 
+Array(13) [ "id", "manualSort", "Utilisateur", "Site", "Service", "Poste", "Formulaires_Accessibles", "gristHelper_Display", "gristHelper_Display2", "gristHelper_Display5", … ]
+index.html:173:28
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 9 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#9: RPC_RESULT_OK grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.getAccessToken#10: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.getAccessToken#10 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.getAccessToken#10: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 10 main.bundle.js:2:134373
+Rpc for GristDocAPI.getAccessToken#10: RPC_ONCALL main.bundle.js:2:134258
+Comm request #50 getAccessToken 
+Array [ 0, {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":50,"method":"getAccessToken","args":[0,{"readOnly":true}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (340 bytes) main.bundle.js:2:145584
+Comm response #50 getAccessToken OK main.bundle.js:2:155175
+Rpc for GristDocAPI.getAccessToken#10: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 10 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.getAccessToken#10: RPC_RESULT_OK grist-plugin-api.ts:386:15
+[Widget] [whoAmI] Tentative 1 (auth en paramètre) — statut: 200 corps: {"id":1,"email":"anon@getgrist.com","name":"Anonymous","picture":null,"ref":"oEQ5JY9cuPXurkqzm7Y1Ke","anonymous":true,"allowGoogleLogin":true} index.html:173:28
+Blocage d’une requête multiorigine (Cross-Origin Request) : la politique « Same Origin » ne permet pas de consulter la ressource distante située sur https://grist.aucarre.tech/o/docs/api/profile/user. Raison : l’en-tête « authorization » n’est pas autorisé d’après l’en-tête « Access-Control-Allow-Headers » de la réponse de pré-vérification des requêtes CORS.
+Blocage d’une requête multiorigine (Cross-Origin Request) : la politique « Same Origin » ne permet pas de consulter la ressource distante située sur https://grist.aucarre.tech/o/docs/api/profile/user. Raison : échec de la requête CORS. Code d’état : (null).
+[Widget] [whoAmI] Échec global : NetworkError when attempting to fetch resource. index.html:173:28
+Comm request #51 applyUserActions 
+Array(3) [ 0, (1) […], {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] 
+{"reqId":51,"method":"applyUserActions","args":[0,[["UpdateRecord","_grist_Views_section",115,{"options":"{\"verticalGridlines\":true,\"horizontalGridlines\":true,\"zebraStripes\":false,\"customView\":\"{\\\"mode\\\":\\\"url\\\",\\\"url\\\":null,\\\"widgetDef\\\":{\\\"name\\\":\\\"Custom widget builder\\\",\\\"url\\\":\\\"https://gristlabs.github.io/grist-widget/custom-widget-builder/index.html\\\",\\\"widgetId\\\":\\\"@berhalak/custom-widget-builder\\\",\\\"published\\\":true,\\\"accessLevel\\\":\\\"none\\\",\\\"renderAfterReady\\\":true,\\\"description\\\":\\\"Build custom widgets with HTML and JavaScript, right inside Grist.\\\",\\\"isGristLabsMaintained\\\":false,\\\"authors\\\":[{\\\"name\\\":\\\"berhalak\\\",\\\"url\\\":\\\"https://github.com/berhalak\\\"}],\\\"lastUpdatedAt\\\":\\\"2024-10-11T13:58:02+02:00\\\",\\\"cleanText\\\":\\\"Custom widget builder Build custom widgets with HTML and JavaScript, right inside Grist. berhalak\\\"},\\\"access\\\":\\\"full\\\",\\\"pluginId\\\":…
+main.bundle.js:2:145584
+GristWSConnection: onmessage (90957 bytes) main.bundle.js:2:145584
+Comm: Triggering event docUserAction main.bundle.js:2:155461
+GristDoc.onDocUserAction 
+Object { type: "docUserAction", data: {…}, docFD: 0, fromSelf: true, seqId: 2321 }
+GristDoc.bundle.js:1:623132
+GristDoc applying #0 
+Array(4) [ "UpdateRecord", "_grist_Views_section", 115, {…} ]
+GristDoc.bundle.js:1:623336
+GristWSConnection: onmessage (172 bytes) main.bundle.js:2:145584
+Comm response #51 applyUserActions OK main.bundle.js:2:155175
+While disposing e, error disposing Function: TypeError: _d().domDispose is not a function main.bundle.js:2:645018
+DocComm: shutdown clientId 72c3e5ba8bae2752 docFD 0 GristDoc.bundle.js:1:184072
+Comm request #52 closeDoc 
+Array [ 0 ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":52,"method":"closeDoc","args":[0]} main.bundle.js:2:145584
+GristWSConnection: disconnect main.bundle.js:2:145584
+Ouverture de https://grist.aucarre.tech/o/docs/byVvknBDyb7R/Prototype-Emma40/p/21
+Localization initialized in 18ms main.bundle.js:2:60911
+gristConfigCache getWorker[byVvknBDyb7RUcFmNTbmNT]: found and deleted value https://grist.aucarre.tech/dw/10-244-216-149/v/unknown/ main.bundle.js:2:566810
+GristWSConnection connecting to: wss://grist.aucarre.tech/dw/10-244-216-149/v/unknown/o/docs?clientId=72c3e5ba8bae2752&counter=95&newClient=1&browserSettings=%7B%22timezone%22%3A%22Europe%2FParis%22%7D&user= main.bundle.js:2:145584
+DocPageModel _openDoc starting for byVvknBDyb7R (mode undefined) main.bundle.js:2:970168
+gristConfigCache getDoc[byVvknBDyb7R]: not found main.bundle.js:2:566587
+GristWSConnection: onopen: Connected main.bundle.js:2:145584
+GristWSConnection: onmessage (113 bytes) main.bundle.js:2:145584
+GristWSConnection established: clientId 72c3e5ba8bae2752 counter 95 needReload false main.bundle.js:2:145584
+Comm: Triggering event clientConnect main.bundle.js:2:155461
+App clientConnect event: needReload false version unknown main.bundle.js:2:909796
+Comm.useDocConnection(byVvknBDyb7RUcFmNTbmNT): useCount now 1 main.bundle.js:2:152766
+Comm request #0 openDoc 
+Array [ "byVvknBDyb7RUcFmNTbmNT", {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":0,"method":"openDoc","args":["byVvknBDyb7RUcFmNTbmNT",{"openMode":"default","originalUrlId":"byVvknBDyb7R"}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (124 bytes) main.bundle.js:2:145584
+GristWSConnection skipping duplicate 'clientConnect' message main.bundle.js:2:145584
+GristWSConnection: onmessage (111121 bytes) main.bundle.js:2:145584
+Comm response #0 openDoc OK main.bundle.js:2:155175
+Comm.useDocConnection(byVvknBDyb7RUcFmNTbmNT): useCount now 2 main.bundle.js:2:152766
+RECEIVED DOC RESPONSE 
+Object { docFD: 0, clientId: "72c3e5ba8bae2752", doc: {…}, log: (100) […], recoveryMode: false, user: {…}, docUsage: {…}, isTimingOn: false }
+GristDoc.bundle.js:1:599883
+Comm request #1 listActiveUserProfiles 
+Array [ 0 ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":1,"method":"listActiveUserProfiles","args":[0]} main.bundle.js:2:145584
+BaseView viewSection 115 (Formulaires) lastCursorPos {"rowIndex":0,"fieldIndex":0} 958.bundle.js:1:383103
+Comm request #2 fetchTable 
+Array [ 0, "Formulaires" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":2,"method":"fetchTable","args":[0,"Formulaires"]} main.bundle.js:2:145584
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:650997
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:653569
+Comm request #3 getUsersForViewAs 
+Array [ 0 ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":3,"method":"getUsersForViewAs","args":[0]} main.bundle.js:2:145584
+Comm.releaseDocConnection(byVvknBDyb7RUcFmNTbmNT): useCount now 1 main.bundle.js:2:152907
+GristWSConnection: onmessage (34 bytes) main.bundle.js:2:145584
+Comm response #1 listActiveUserProfiles OK main.bundle.js:2:155175
+GristWSConnection: onmessage (481 bytes) main.bundle.js:2:145584
+Comm response #2 fetchTable OK main.bundle.js:2:155175
+GristWSConnection: onmessage (2218 bytes) main.bundle.js:2:145584
+Comm response #3 getUsersForViewAs OK main.bundle.js:2:155175
+Feature Policy : nom de fonctionnalité non prise en charge ignoré « clipboard-write ». main.bundle.js:2:651109
+Cette page est en mode de compatibilité (quirks). La mise en page peut en être affectée. Pour le mode standard, utilisez « <!DOCTYPE html> ». index.html
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending Ready grist-plugin-api.ts:386:15
+Rpc sending Custom main.bundle.js:2:131145
+Rpc sending Custom main.bundle.js:2:131145
+Rpc sending Custom main.bundle.js:2:131145
+Rpc sending Custom main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending Custom grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending Ready grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#1: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.fetchTable#1 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.configure#2: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: CustomSectionAPI.configure#2 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#1: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.configure#2: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Rpc sending Custom 3 main.bundle.js:2:131145
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 1 main.bundle.js:2:134373
+Rpc for GristDocAPI.fetchTable#1: RPC_ONCALL main.bundle.js:2:134258
+Comm request #4 fetchTable 
+Array [ 0, "Reponses" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":4,"method":"fetchTable","args":[0,"Reponses"]} main.bundle.js:2:145584
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 2 main.bundle.js:2:134373
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending Custom grist-plugin-api.ts:386:15
+Rpc for CustomSectionAPI.configure#2: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.configure#2: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending Custom grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedTable#3: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristView.fetchSelectedTable#3 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedRecord#4: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristView.fetchSelectedRecord#4 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 2 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedTable#3: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedRecord#4: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 3 main.bundle.js:2:134373
+Rpc for GristView.fetchSelectedTable#3: RPC_ONCALL main.bundle.js:2:134258
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.configure#2: RPC_RESULT_OK grist-plugin-api.ts:386:15
+Rpc for GristView.fetchSelectedTable#3: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 4 main.bundle.js:2:134373
+Rpc for GristView.fetchSelectedRecord#4: RPC_ONCALL main.bundle.js:2:134258
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 3 grist-plugin-api.ts:389:15
+Rpc for GristView.fetchSelectedRecord#4: RPC_ONCALL_OK main.bundle.js:2:134258
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedTable#3: RPC_RESULT_OK grist-plugin-api.ts:386:15
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.mappings#5: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: CustomSectionAPI.mappings#5 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.mappings#5: RPC_UNKNOWN_INTERFACE Unknown interface grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 4 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristView.fetchSelectedRecord#4: RPC_RESULT_OK grist-plugin-api.ts:386:15
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 5 main.bundle.js:2:134373
+Rpc for CustomSectionAPI.mappings#5: RPC_ONCALL main.bundle.js:2:134258
+Rpc for CustomSectionAPI.mappings#5: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 5 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for CustomSectionAPI.mappings#5: RPC_RESULT_OK grist-plugin-api.ts:386:15
+GristWSConnection: onmessage (2592 bytes) main.bundle.js:2:145584
+Comm response #4 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#1: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 1 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#1: RPC_RESULT_OK grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#6: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.fetchTable#6 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#7: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.fetchTable#7 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#8: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.fetchTable#8 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#9: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.fetchTable#9 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#6: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#7: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#8: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#9: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 6 main.bundle.js:2:134373
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Rpc for GristDocAPI.fetchTable#6: RPC_ONCALL main.bundle.js:2:134258
+Comm request #5 fetchTable 
+Array [ 0, "Agents" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":5,"method":"fetchTable","args":[0,"Agents"]} main.bundle.js:2:145584
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 7 main.bundle.js:2:134373
+Rpc for GristDocAPI.fetchTable#7: RPC_ONCALL main.bundle.js:2:134258
+Comm request #6 fetchTable 
+Array [ 0, "Sites" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":6,"method":"fetchTable","args":[0,"Sites"]} main.bundle.js:2:145584
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 8 main.bundle.js:2:134373
+Rpc for GristDocAPI.fetchTable#8: RPC_ONCALL main.bundle.js:2:134258
+Comm request #7 fetchTable 
+Array [ 0, "Services" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":7,"method":"fetchTable","args":[0,"Services"]} main.bundle.js:2:145584
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 9 main.bundle.js:2:134373
+Rpc for GristDocAPI.fetchTable#9: RPC_ONCALL main.bundle.js:2:134258
+Comm request #8 fetchTable 
+Array [ 0, "Formulaires" ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":8,"method":"fetchTable","args":[0,"Formulaires"]} main.bundle.js:2:145584
+GristWSConnection: onmessage (1480 bytes) main.bundle.js:2:145584
+Comm response #5 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#6: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (203 bytes) main.bundle.js:2:145584
+Comm response #6 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#7: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (366 bytes) main.bundle.js:2:145584
+Comm response #7 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#8: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+GristWSConnection: onmessage (481 bytes) main.bundle.js:2:145584
+Comm response #8 fetchTable OK main.bundle.js:2:155175
+Rpc for GristDocAPI.fetchTable#9: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 6 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#6: RPC_RESULT_OK grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 7 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 8 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 9 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#7: RPC_RESULT_OK grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#8: RPC_RESULT_OK grist-plugin-api.ts:386:15
+[Widget] Colonnes Agents : 
+Array(13) [ "id", "manualSort", "Utilisateur", "Site", "Service", "Poste", "Formulaires_Accessibles", "gristHelper_Display", "gristHelper_Display2", "gristHelper_Display5", … ]
+index.html:173:28
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.fetchTable#9: RPC_RESULT_OK grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.getAccessToken#10: RPC_CALLING grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcCall: GristDocAPI.getAccessToken#10 grist-plugin-api.ts:386:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.getAccessToken#10: RPC_UNKNOWN_FORWARD_DEST Unknown forward destination: grist grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc sending RpcRespErr grist-plugin-api.ts:386:15
+Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 10 main.bundle.js:2:134373
+Rpc for GristDocAPI.getAccessToken#10: RPC_ONCALL main.bundle.js:2:134258
+Comm request #9 getAccessToken 
+Array [ 0, {…} ]
+main.bundle.js:2:153760
+GristWSConnection.send[true] {"reqId":9,"method":"getAccessToken","args":[0,{"readOnly":true}]} main.bundle.js:2:145584
+GristWSConnection: onmessage (339 bytes) main.bundle.js:2:145584
+Comm response #9 getAccessToken OK main.bundle.js:2:155175
+Rpc for GristDocAPI.getAccessToken#10: RPC_ONCALL_OK main.bundle.js:2:134258
+Rpc sending RpcRespData main.bundle.js:2:131145
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for ?: RPC_UNKNOWN_REQID Response to unknown reqId 10 grist-plugin-api.ts:389:15
+PLUGIN VIEW /grist-widget/custom-widget-builder/index.html: Rpc for GristDocAPI.getAccessToken#10: RPC_RESULT_OK grist-plugin-api.ts:386:15
+[Widget] [whoAmI] Tentative 1 (auth en paramètre) — statut: 200 corps: {"id":1,"email":"anon@getgrist.com","name":"Anonymous","picture":null,"ref":"oEQ5JY9cuPXurkqzm7Y1Ke","anonymous":true,"allowGoogleLogin":true} index.html:173:28
+Blocage d’une requête multiorigine (Cross-Origin Request) : la politique « Same Origin » ne permet pas de consulter la ressource distante située sur https://grist.aucarre.tech/o/docs/api/profile/user. Raison : l’en-tête « authorization » n’est pas autorisé d’après l’en-tête « Access-Control-Allow-Headers » de la réponse de pré-vérification des requêtes CORS.
+Blocage d’une requête multiorigine (Cross-Origin Request) : la politique « Same Origin » ne permet pas de consulter la ressource distante située sur https://grist.aucarre.tech/o/docs/api/profile/user. Raison : échec de la requête CORS. Code d’état : (null).
+[Widget] [whoAmI] Échec global : NetworkError when attempting to fetch resource. index.html:173:28
