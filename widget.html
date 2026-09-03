@@ -717,6 +717,11 @@ const App = {
             const attachmentIds = await GristApi.uploadAttachments(files);
             // Format de liste attendu par Grist en écriture : ["L", id1, id2, ...]
             detail.values[f.name] = ["L", ...attachmentIds];
+            // Pause expérimentale : test pour voir si le serveur a besoin d'un
+            // court délai après l'upload avant d'accepter la requête suivante
+            // (hypothèse non confirmée sur un conflit de session/cookie côté
+            // serveur, à valider ou infirmer par ce test).
+            await new Promise(resolve => setTimeout(resolve, 1500));
           } catch (e) {
             Logger.error(`Échec upload "${f.label}" :`, e);
             attachmentWarnings.push(f.label);
