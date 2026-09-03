@@ -702,34 +702,23 @@ const App = {
     UiFeedback.showStatus("Enregistrement en cours…", "");
 
     try {
-      // Upload des éventuelles pièces jointes avant l'écriture des lignes.
-      // Non bloquant : si l'upload échoue (ex: restriction CORS côté serveur
-      // Grist, cf. limitation documentée), le reste de l'intervention est
-      // quand même enregistré — la photo pourra être ajoutée manuellement
-      // ensuite depuis la grille Grist.
+      // ⚠️ LIMITATION CONNUE (confirmée par tests approfondis) : écrire une
+      // référence de pièce jointe (même issue d'un upload réussi) dans une
+      // ligne, pour un compte non-Propriétaire, provoque une coupure de
+      // session côté serveur Grist (docShutdown) qui fait perdre l'écriture.
+      // Reproduit sur 2 instances (self-hosted + docs.getgrist.com), en
+      // simulation et en vraie connexion, avec/sans délai ajouté. Ce n'est
+      // pas un bug du widget — l'upload lui-même n'est donc plus tenté ici ;
+      // l'agent ajoute la photo manuellement dans la grille Grist ensuite
+      // (fonctionne, vérifié séparément).
       const attachmentWarnings = [];
       for (const f of this.currentDetailFields) {
         if (f.type !== "attachment") continue;
         const files = detail.values[f.name];
         if (files && files.length > 0) {
-          try {
-            UiFeedback.showStatus(`Envoi de la pièce jointe "${f.label}"…`, "");
-            const attachmentIds = await GristApi.uploadAttachments(files);
-            // Format de liste attendu par Grist en écriture : ["L", id1, id2, ...]
-            detail.values[f.name] = ["L", ...attachmentIds];
-            // Pause expérimentale : test pour voir si le serveur a besoin d'un
-            // court délai après l'upload avant d'accepter la requête suivante
-            // (hypothèse non confirmée sur un conflit de session/cookie côté
-            // serveur, à valider ou infirmer par ce test).
-            await new Promise(resolve => setTimeout(resolve, 1500));
-          } catch (e) {
-            Logger.error(`Échec upload "${f.label}" :`, e);
-            attachmentWarnings.push(f.label);
-            detail.values[f.name] = null;
-          }
-        } else {
-          detail.values[f.name] = null;
+          attachmentWarnings.push(f.label);
         }
+        detail.values[f.name] = null;
       }
 
       const dateValue = Math.floor(new Date(dateEl.value).getTime() / 1000);
