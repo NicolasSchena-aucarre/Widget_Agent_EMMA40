@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Saisie de formulaire</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+  :root {
+    --border: #d8dce1;
+    --text: #1f2933;
+    --muted: #6b7684;
+    --accent: #2f6fed;
+    --accent-dark: #1f4fc4;
+    --error: #c0392b;
+    --success: #2f7d4f;
+    --bg-field: #f8f9fb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px 18px 32px;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color: var(--text);
+    background: #fff;
+    font-size: 14px;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .subtitle { font-size: 12px; color: var(--muted); margin: 0 0 20px; }
+  #status { font-size: 13px; color: var(--muted); padding: 16px 0; }
+  #status.error { color: var(--error); }
+  #status.success { color: var(--success); }
+  #status.warn { color: #b8860b; }
+
+  fieldset {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px 16px;
+    margin: 0 0 16px;
+  }
+  fieldset:disabled { opacity: 0.5; }
+  legend {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
+    color: var(--muted); padding: 0 6px;
+  }
+
+  .field { margin-bottom: 12px; }
+  .field:last-child { margin-bottom: 0; }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  label .req { color: var(--error); font-weight: 400; }
+
+  input[type=text], input[type=number], input[type=date],
+  textarea, select {
+    width: 100%; padding: 8px 10px; font-size: 14px;
+    border: 1px solid var(--border); border-radius: 5px;
+    background: var(--bg-field); font-family: inherit; color: var(--text);
+  }
+  input:focus, textarea:focus, select:focus {
+    outline: none; border-color: var(--accent); background: #fff;
+  }
+  textarea { min-height: 70px; resize: vertical; }
+
+  .checkbox-row { display: flex; align-items: center; gap: 8px; }
+  .checkbox-row input { width: auto; }
+  .checkbox-row label { margin: 0; }
+
+  .readonly-value {
+    padding: 8px 10px; font-size: 14px; background: var(--bg-field);
+    border: 1px dashed var(--border); border-radius: 5px; color: var(--muted);
+  }
+
+  button {
+    width: 100%; padding: 11px; font-size: 14px; font-weight: 600;
+    color: #fff; background: var(--accent); border: none; border-radius: 6px;
+    cursor: pointer; margin-top: 4px;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:disabled { background: var(--muted); cursor: not-allowed; }
+
+  .field-error { border-color: var(--error) !important; }
+  .field-error-msg { font-size: 12px; color: var(--error); margin-top: 3px; }
+
+  .empty-hint { font-size: 12px; color: var(--muted); font-style: italic; }
+</style>
+</head>
+<body>
+
+<h1>Saisie d'intervention</h1>
+<p class="subtitle" id="formSubtitle">Chargement…</p>
+
+<div id="status"></div>
+
+<form id="mainForm" style="display:none;">
+  <fieldset id="fsAgent">
+    <legend>Agent</legend>
+    <div class="field">
+      <label for="field___agent">Agent<span class="req"> *</span></label>
+      <select id="field___agent"><option value="">— Sélectionner —</option></select>
+    </div>
+    <div class="field">
+      <label>Site / Service</label>
+      <div class="readonly-value" id="siteServiceDisplay">Sélectionnez un agent</div>
+    </div>
+  </fieldset>
+
+  <fieldset id="fsFormulaire" disabled>
+    <legend>Formulaire</legend>
+    <div class="field">
+      <label for="field___formulaire">Formulaire à remplir<span class="req"> *</span></label>
+      <select id="field___formulaire"><option value="">— Sélectionnez d'abord un agent —</option></select>
+    </div>
+    <div class="field">
+      <label for="field___date">Date d'intervention<span class="req"> *</span></label>
+      <input type="date" id="field___date" />
+    </div>
+  </fieldset>
+
+  <fieldset id="fsDetail" disabled>
+    <legend id="fsDetailLegend">Détails</legend>
+    <div id="detailFieldsContainer" class="empty-hint">Sélectionnez un formulaire pour afficher ses champs.</div>
+  </fieldset>
+
+  <button type="submit" id="submitBtn">Enregistrer l'intervention</button>
+</form>
+
+<script>
+/* ============================================================
+   CONFIGURATION — au niveau du DOCUMENT, pas par formulaire.
+   Un seul déploiement de ce widget suffit pour tous les formulaires.
+   ⚠️ Prérequis dans Grist avant de tester :
+     - Table "Formulaires" : ajouter une colonne texte "Table_Technique"
+       contenant le tableId technique exact de la table de détail
+       correspondante (voir "Données brutes" / Raw Data).
+       Remplir cette colonne pour chaque formulaire existant.
+   ============================================================ */
+const CFG = {
+  agentsTable: "Agents",
+  agentDisplayColumn: "Nom_Complet_Agent",
+  agentSiteColumn: "Site",
+  agentServiceColumn: "Service",
+  agentFormulairesAccessiblesColumn: "Formulaires_Accessibles", // Référence multiple -> Formulaires
+
+  sitesTable: "Sites",
+  siteNameColumn: "Nom",
+
+  servicesTable: "Services",
+  serviceTypeColumn: "Type",
+
+  formulairesTable: "Formulaires",
+  formulaireTitleColumn: "Titre",
+  formulaireActifColumn: "Actif",
+  formulaireTableTechniqueColumn: "Table_Technique",
+
+  reponsesTable: "Reponses",
+  // Colonne Texte à ajouter dans Reponses (via Grist) : sert de marqueur
+  // "écriture détail en attente" pour la reprise résiliente (voir
+  // ReponseService). Nom exact à faire correspondre à la vraie colonne.
+  pendingDetailColumn: "Detail_En_Attente",
+  // Nom de colonne supposé identique dans toutes les tables de détail
+  // (convention à respecter pour que la détection automatique fonctionne).
+  detailLinkColumnConvention: "Reponse",
+
+  // Colonnes techniques Grist à toujours ignorer lors de la génération auto
+  excludedTechnicalColumns: ["manualSort"],
+};
+/* ============================================================
+   FIN DE LA CONFIGURATION
+   ============================================================ */
+
+
+/* ---------- Logger ---------- */
+const Logger = {
+  debug(...args) { console.log("[Widget]", ...args); },
+  warn(...args) { console.warn("[Widget]", ...args); },
+  error(...args) { console.error("[Widget]", ...args); },
+};
+
+
+/* ---------- Utilitaires ---------- */
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+function fieldId(f) { return "field_" + f.name; }
+
+function requireColumn(tableData, columnName, tableLabelForError) {
+  if (!(columnName in tableData)) {
+    const available = Object.keys(tableData).filter(k => k !== "id").sort().join(", ");
+    throw new Error(
+      `Colonne "${columnName}" introuvable dans "${tableLabelForError}". ` +
+      `Colonnes disponibles : ${available || "(aucune)"}. Corrige CFG en conséquence.`
+    );
+  }
+  return tableData[columnName];
+}
+
+/** Normalise une valeur de colonne Référence multiple (RefList) en tableau d'ids. */
+function normalizeRefList(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    // Certaines réponses Grist préfixent la liste par le marqueur "L".
+    if (raw[0] === "L") return raw.slice(1);
+    return raw;
+  }
+  return [];
+}
+
+
+/* ============================================================
+   GristApi — seul point de contact avec l'API Grist.
+   ============================================================ */
+const GristApi = {
+  async fetchTable(tableName) {
+    return grist.docApi.fetchTable(tableName);
+  },
+  async addRecord(tableName, fields) {
+    const result = await grist.docApi.applyUserActions([
+      ["AddRecord", tableName, null, fields],
+    ]);
+    return result.retValues[0];
+  },
+  async updateRecord(tableName, rowId, fields) {
+    await grist.docApi.applyUserActions([
+      ["UpdateRecord", tableName, rowId, fields],
+    ]);
+  },
+  /**
+   * EXPÉRIMENTAL — tentative d'identification de l'utilisateur connecté.
+   * ⚠️ Endpoint non confirmé officiellement, construit par analogie avec
+   * celui des pièces jointes (même mécanisme de jeton). Purement
+   * diagnostique pour l'instant : n'affecte aucun comportement existant du
+   * widget, juste un test consigné en console.
+   */
+  async whoAmI() {
+    const { token, baseUrl } = await grist.docApi.getAccessToken({ readOnly: true });
+    // baseUrl ressemble à ".../o/docs/api/docs/{docId}" — on retire le
+    // segment "/docs/{docId}" final pour retrouver la racine de l'API.
+    const apiRoot = baseUrl.replace(/\/docs\/[^/]+$/, "");
+    const url = `${apiRoot}/profile/user?auth=${token}`;
+    Logger.debug("[whoAmI] URL testée :", url);
+    const response = await fetch(url);
+    Logger.debug("[whoAmI] Statut :", response.status, response.type);
+    const bodyText = await response.text().catch(() => "(corps illisible)");
+    Logger.debug("[whoAmI] Corps de la réponse :", bodyText);
+    if (!response.ok) {
+      throw new Error(`whoAmI a échoué (HTTP ${response.status}) : ${bodyText}`);
+    }
+    return JSON.parse(bodyText);
+  },
+  /**
+   * Upload un ou plusieurs fichiers vers Grist et renvoie les identifiants
+   * de pièce jointe générés. Réactivée dans le flux de soumission : la
+   * coupure de session observée après applyUserActions touche toutes les
+   * écritures (pas spécifique aux pièces jointes), et le mécanisme de
+   * reprise (ReponseService.resumePendingIfAny) protège désormais contre
+   * la perte de données que ça provoquait.
+   */
+  async uploadAttachments(fileList) {
+    if (!fileList || fileList.length === 0) return [];
+    const accessInfo = await grist.docApi.getAccessToken({ readOnly: false });
+    Logger.debug("Résultat de getAccessToken() :", accessInfo);
+    const { token, baseUrl } = accessInfo;
+    const url = `${baseUrl}/attachments?auth=${token}`;
+    Logger.debug("URL d'upload construite :", url);
+    const formData = new FormData();
+    for (const file of fileList) formData.append("upload", file, file.name);
+    const response = await fetch(url, {
+      method: "POST",
+      body: formData,
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    });
+    Logger.debug("Réponse upload — status:", response.status, "type:", response.type);
+    if (!response.ok) {
+      let bodyText = "";
+      try { bodyText = await response.text(); } catch (e) { bodyText = "(corps illisible, probablement bloqué par CORS)"; }
+      throw new Error(`Échec de l'upload (HTTP ${response.status}). ${bodyText}`);
+    }
+    const result = await response.json();
+    Logger.debug("Résultat brut de l'upload :", result);
+    return result;
+  },
+};
+
+
+/* ============================================================
+   FieldTypes — registre des types de champ (utilisé pour les
+   champs "détail" générés dynamiquement depuis le schéma).
+   ============================================================ */
+const FieldTypes = {
+  text: {
+    render(f) { return fieldWrapper(f, `<input type="text" id="${fieldId(f)}" />`); },
+    read(f) {
+      const v = document.getElementById(fieldId(f)).value;
+      return v === "" ? null : v;
+    },
+  },
+  textarea: {
+    render(f) { return fieldWrapper(f, `<textarea id="${fieldId(f)}"></textarea>`); },
+    read(f) {
+      const v = document.getElementById(fieldId(f)).value;
+      return v === "" ? null : v;
+    },
+  },
+  number: {
+    render(f) { return fieldWrapper(f, `<input type="number" step="any" id="${fieldId(f)}" />`); },
+    read(f) {
+      const v = document.getElementById(fieldId(f)).value;
+      return v === "" ? null : Number(v);
+    },
+  },
+  date: {
+    render(f) { return fieldWrapper(f, `<input type="date" id="${fieldId(f)}" />`); },
+    read(f) {
+      const v = document.getElementById(fieldId(f)).value;
+      return v ? Math.floor(new Date(v).getTime() / 1000) : null;
+    },
+  },
+  boolean: {
+    render(f) {
+      const wrap = document.createElement("div");
+      wrap.className = "field";
+      wrap.innerHTML = `
+        <div class="checkbox-row">
+          <input type="checkbox" id="${fieldId(f)}" />
+          <label for="${fieldId(f)}">${escapeHtml(f.label)}</label>
+        </div>`;
+      return wrap;
+    },
+    read(f) { return document.getElementById(fieldId(f)).checked; },
+  },
+  choice: {
+    render(f) {
+      const options = (f.options || [])
+        .map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
+      return fieldWrapper(f, `<select id="${fieldId(f)}"><option value="">— Sélectionner —</option>${options}</select>`);
+    },
+    read(f) {
+      const v = document.getElementById(fieldId(f)).value;
+      return v === "" ? null : v;
+    },
+  },
+  attachment: {
+    // Un vrai sélecteur de fichier, à nouveau : l'upload en lui-même
+    // fonctionne (confirmé), et le mécanisme de reprise (ReponseService.
+    // resumePendingIfAny) protège contre l'interruption de session
+    // observée entre les deux écritures — même si docShutdown survient,
+    // la référence de pièce jointe déjà résolue est sauvegardée avant
+    // d'être tentée, donc jamais perdue.
+    render(f) {
+      return fieldWrapper(f, `<input type="file" id="${fieldId(f)}" accept="image/*" multiple />`);
+    },
+    read(f) {
+      return document.getElementById(fieldId(f)).files;
+    },
+  },
+};
+
+function fieldWrapper(f, inputHtml) {
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  const reqMark = f.required ? ' <span class="req">*</span>' : "";
+  wrap.innerHTML = `<label for="${fieldId(f)}">${escapeHtml(f.label)}${reqMark}</label>${inputHtml}`;
+  return wrap;
+}
+
+
+/* ============================================================
+   SchemaService — lit le schéma réel d'une table Grist (via les
+   tables système) pour générer automatiquement la liste des champs.
+   ⚠️ Mécanisme à vérifier au premier test réel : certains types
+   (Référence, Pièce jointe, Choix multiple) ne sont pas encore
+   pris en charge et seront ignorés (avec avertissement console)
+   plutôt que de faire planter le widget.
+   ============================================================ */
+const SchemaService = {
+  async getFieldsForTable(tableId) {
+    const [tablesMeta, columnsMeta] = await Promise.all([
+      GristApi.fetchTable("_grist_Tables"),
+      GristApi.fetchTable("_grist_Tables_column"),
+    ]);
+
+    const idx = tablesMeta.tableId.indexOf(tableId);
+    if (idx === -1) {
+      throw new Error(
+        `Table technique "${tableId}" introuvable dans le document. ` +
+        `Vérifie Formulaires.${CFG.formulaireTableTechniqueColumn} (Raw Data pour le nom exact).`
+      );
+    }
+    const tableRowId = tablesMeta.id[idx];
+
+    const fields = [];
+    const skipped = [];
+    columnsMeta.id.forEach((_, i) => {
+      if (columnsMeta.parentId[i] !== tableRowId) return;
+      const colId = columnsMeta.colId[i];
+      if (colId === CFG.detailLinkColumnConvention) return;
+      if (CFG.excludedTechnicalColumns.includes(colId)) return;
+      if (colId.startsWith("gristHelper_")) return;
+
+      if (columnsMeta.isFormula && columnsMeta.isFormula[i]) {
+        skipped.push({ colId, reason: "colonne vide/formule (voir note ci-dessous)" });
+        return;
+      }
+
+      const gristType = columnsMeta.type[i] || "";
+      const mappedType = mapGristType(gristType);
+      if (!mappedType) {
+        skipped.push({ colId, reason: `type "${gristType}" non pris en charge` });
+        Logger.warn(`Colonne "${colId}" (type Grist "${gristType}") non gérée automatiquement — ignorée.`);
+        return;
+      }
+
+      let options = [];
+      if (mappedType === "choice") {
+        try {
+          const wo = JSON.parse(columnsMeta.widgetOptions[i] || "{}");
+          options = wo.choices || [];
+        } catch (e) {
+          Logger.warn(`Impossible de lire les choix de "${colId}" :`, e);
+        }
+      }
+
+      fields.push({
+        name: colId,
+        label: columnsMeta.label[i] || colId,
+        type: mappedType,
+        required: false,
+        options,
+      });
+    });
+
+    return { fields, skipped };
+  },
+};
+
+function mapGristType(gristType) {
+  if (gristType === "Text") return "text";
+  if (gristType === "Numeric" || gristType === "Int") return "number";
+  if (gristType === "Bool") return "boolean";
+  if (gristType === "Choice") return "choice";
+  if (gristType === "Date" || gristType.startsWith("DateTime")) return "date";
+  if (gristType === "Attachments") return "attachment";
+  return null; // ChoiceList, Ref:*, RefList:* : non gérés pour l'instant
+}
+
+
+/* ============================================================
+   Validator
+   ============================================================ */
+const Validator = {
+  validate(fields) {
+    const values = {};
+    const errors = [];
+    for (const f of fields) {
+      const value = FieldTypes[f.type].read(f);
+      values[f.name] = value;
+      if (f.required && (value === null || value === "")) {
+        errors.push({ field: f, message: "Champ requis" });
+      }
+    }
+    return { values, errors };
+  },
+};
+
+
+/* ============================================================
+   UiFeedback
+   ============================================================ */
+const UiFeedback = {
+  showStatus(msg, kind) {
+    const el = document.getElementById("status");
+    el.textContent = msg;
+    el.className = kind || "";
+  },
+  markFieldError(f, msg) {
+    const el = document.getElementById(fieldId(f));
+    if (!el) return;
+    el.classList.add("field-error");
+    const p = document.createElement("div");
+    p.className = "field-error-msg";
+    p.textContent = msg;
+    el.parentElement.appendChild(p);
+  },
+  clearFieldErrors() {
+    document.querySelectorAll(".field-error").forEach(el => el.classList.remove("field-error"));
+    document.querySelectorAll(".field-error-msg").forEach(el => el.remove());
+  },
+};
+
+
+/* ============================================================
+   AgentRepository
+   ============================================================ */
+const AgentRepository = {
+  async loadAll() {
+    const [agentsTable, sitesTable, servicesTable] = await Promise.all([
+      GristApi.fetchTable(CFG.agentsTable),
+      GristApi.fetchTable(CFG.sitesTable),
+      GristApi.fetchTable(CFG.servicesTable),
+    ]);
+
+    Logger.debug("Colonnes Agents :", Object.keys(agentsTable));
+
+    const agentSiteCol = requireColumn(agentsTable, CFG.agentSiteColumn, CFG.agentsTable);
+    const agentServiceCol = requireColumn(agentsTable, CFG.agentServiceColumn, CFG.agentsTable);
+    const agentLabelCol = requireColumn(agentsTable, CFG.agentDisplayColumn, CFG.agentsTable);
+    const agentFormAccessCol = requireColumn(agentsTable, CFG.agentFormulairesAccessiblesColumn, CFG.agentsTable);
+    const siteNameCol = requireColumn(sitesTable, CFG.siteNameColumn, CFG.sitesTable);
+    const serviceTypeCol = requireColumn(servicesTable, CFG.serviceTypeColumn, CFG.servicesTable);
+
+    const siteNameById = {};
+    sitesTable.id.forEach((id, i) => { siteNameById[id] = siteNameCol[i]; });
+    const serviceTypeById = {};
+    servicesTable.id.forEach((id, i) => { serviceTypeById[id] = serviceTypeCol[i]; });
+
+    return agentsTable.id.map((id, i) => {
+      const siteName = siteNameById[agentSiteCol[i]] || null;
+      const serviceTypeName = serviceTypeById[agentServiceCol[i]] || null;
+      return {
+        id,
+        label: agentLabelCol[i],
+        serviceDisplay: (serviceTypeName && siteName) ? `${serviceTypeName} - ${siteName}` : null,
+        formulaireIds: normalizeRefList(agentFormAccessCol[i]),
+      };
+    });
+  },
+};
+
+
+/* ============================================================
+   FormulaireCatalog
+   ============================================================ */
+const FormulaireCatalog = {
+  async loadAll() {
+    const t = await GristApi.fetchTable(CFG.formulairesTable);
+    const titleCol = requireColumn(t, CFG.formulaireTitleColumn, CFG.formulairesTable);
+    const actifCol = requireColumn(t, CFG.formulaireActifColumn, CFG.formulairesTable);
+    const tableTechCol = requireColumn(t, CFG.formulaireTableTechniqueColumn, CFG.formulairesTable);
+
+    return t.id.map((id, i) => ({
+      id,
+      titre: titleCol[i],
+      actif: actifCol[i],
+      tableTechnique: tableTechCol[i],
+    }));
+  },
+};
+
+
+/* ============================================================
+   ReponseService
+   ============================================================ */
+const ReponseService = {
+  async submit({ agentId, formulaireId, date, detailTable, detailValues }) {
+    // Le "job" à accomplir (créer la ligne détail) est inclus DANS la
+    // première écriture elle-même — pas dans le navigateur (localStorage
+    // s'est révélé non fiable dans cette iframe tierce, soumis au
+    // partitionnement de stockage selon les navigateurs/paramètres de vie
+    // privée, cf. incident constaté). Ainsi, dès que la ligne Reponses
+    // existe, la trace de ce qu'il reste à faire existe aussi, de façon
+    // garantie — dans les données elles-mêmes, pas dans un stockage local
+    // dont la fiabilité varie d'un poste à l'autre.
+    const pendingJob = JSON.stringify({
+      detailTable,
+      linkColumn: CFG.detailLinkColumnConvention,
+      detailValues,
+    });
+
+    const reponsesPayload = {
+      Agent: agentId,
+      Formulaire: formulaireId,
+      Date_Intervention: date,
+      [CFG.pendingDetailColumn]: pendingJob,
+    };
+    Logger.debug("Payload Reponses :", reponsesPayload);
+    const reponseId = await GristApi.addRecord(CFG.reponsesTable, reponsesPayload);
+    Logger.debug("Reponse créée, id =", reponseId);
+
+    await this.completeDetailWrite(reponseId, detailTable, detailValues);
+
+    return reponseId;
+  },
+
+  /** Crée la ligne détail puis efface le marqueur "en attente" sur Reponses. */
+  async completeDetailWrite(reponseId, detailTable, detailValues) {
+    const detailPayload = { [CFG.detailLinkColumnConvention]: reponseId, ...detailValues };
+    Logger.debug(`Payload ${detailTable} :`, detailPayload);
+    await GristApi.addRecord(detailTable, detailPayload);
+    await GristApi.updateRecord(CFG.reponsesTable, reponseId, { [CFG.pendingDetailColumn]: "" });
+  },
+
+  /**
+   * Cherche, parmi les Reponses visibles par l'utilisateur courant (donc
+   * déjà filtrées par les ACL), toute ligne dont l'écriture détail est
+   * restée en suspens — et la termine. À appeler tout au début de
+   * App.init(), avant toute autre chose. Protégé contre les doublons : si
+   * la ligne détail existe déjà (le job avait en fait réussi, seul le
+   * nettoyage du marqueur avait été interrompu), on se contente d'effacer
+   * le marqueur sans recréer de ligne.
+   */
+  async resumeAllPending() {
+    const reponsesTable = await GristApi.fetchTable(CFG.reponsesTable);
+    const pendingCol = reponsesTable[CFG.pendingDetailColumn];
+    if (!pendingCol) return [];
+
+    const pendingRows = reponsesTable.id
+      .map((id, i) => ({ id, raw: pendingCol[i] }))
+      .filter(r => r.raw);
+
+    if (pendingRows.length === 0) return [];
+
+    // Cache des tables détail déjà chargées, pour éviter de refetch la même
+    // table plusieurs fois si plusieurs lignes en attente la concernent.
+    const detailTableCache = {};
+
+    const results = [];
+    for (const row of pendingRows) {
+      let job;
+      try {
+        job = JSON.parse(row.raw);
+      } catch (e) {
+        Logger.error(`Marqueur illisible sur Reponses #${row.id} :`, e);
+        continue;
+      }
+
+      Logger.debug(`Reprise Reponses #${row.id} :`, job);
+      try {
+        if (!detailTableCache[job.detailTable]) {
+          detailTableCache[job.detailTable] = await GristApi.fetchTable(job.detailTable);
+        }
+        const detailTableData = detailTableCache[job.detailTable];
+        const linkCol = detailTableData[job.linkColumn] || [];
+        const alreadyExists = linkCol.includes(row.id);
+
+        if (!alreadyExists) {
+          const detailPayload = { [job.linkColumn]: row.id, ...job.detailValues };
+          await GristApi.addRecord(job.detailTable, detailPayload);
+        }
+        await GristApi.updateRecord(CFG.reponsesTable, row.id, { [CFG.pendingDetailColumn]: "" });
+        results.push({ success: true, reponseId: row.id, wasAlreadyDone: alreadyExists });
+      } catch (e) {
+        Logger.error(`Échec de la reprise pour Reponses #${row.id} :`, e);
+        results.push({ success: false, reponseId: row.id, error: e });
+      }
+    }
+    return results;
+  },
+};
+
+
+
+/* ============================================================
+   App — orchestration et gestion du flux en cascade
+   Agent -> Formulaire -> Champs dynamiques
+   ============================================================ */
+const App = {
+  agentsList: [],
+  formulairesList: [],
+  currentDetailFields: [],
+  currentFormulaire: null,
+
+  async init() {
+    try {
+      // Reprise en priorité absolue : si une ou plusieurs écritures "détail"
+      // sont restées en suspens suite à une coupure de session précédente,
+      // on les termine avant même de charger le reste — sinon l'intervention
+      // resterait orpheline (Reponses créée, table détail jamais renseignée).
+      const resumedResults = await ReponseService.resumeAllPending();
+      if (resumedResults.length > 0) {
+        const succeeded = resumedResults.filter(r => r.success);
+        const failed = resumedResults.filter(r => !r.success);
+        const parts = [];
+        if (succeeded.length > 0) {
+          parts.push(`✅ ${succeeded.length} intervention(s) interrompue(s) finalisée(s) automatiquement (Réponse #${succeeded.map(r => r.reponseId).join(", #")}).`);
+        }
+        if (failed.length > 0) {
+          parts.push(`⚠️ ${failed.length} intervention(s) toujours en attente (Réponse #${failed.map(r => r.reponseId).join(", #")}) — nouvel essai au prochain chargement.`);
+        }
+        UiFeedback.showStatus(parts.join(" "), failed.length > 0 ? "warn" : "success");
+      }
+
+      const [agents, formulaires] = await Promise.all([
+        AgentRepository.loadAll(),
+        FormulaireCatalog.loadAll(),
+      ]);
+      this.agentsList = agents;
+      this.formulairesList = formulaires.filter(f => f.actif);
+
+      this.populateAgentSelect();
+      document.getElementById("formSubtitle").textContent =
+        "Choisissez votre profil puis le formulaire à remplir.";
+
+      // Expérimentation isolée, non bloquante : tentative d'identification
+      // automatique de l'utilisateur connecté. N'affecte rien d'autre —
+      // juste un test consigné en console pour l'instant.
+      GristApi.whoAmI()
+        .then(profile => Logger.debug("[whoAmI] Succès, profil obtenu :", profile))
+        .catch(e => Logger.debug("[whoAmI] Échec (attendu si l'endpoint n'existe pas) :", e.message));
+      document.getElementById("mainForm").style.display = "block";
+
+      document.getElementById("field___agent").addEventListener("change", () => this.onAgentChange());
+      document.getElementById("field___formulaire").addEventListener("change", () => this.onFormulaireChange());
+      document.getElementById("mainForm").addEventListener("submit", (evt) => this.onSubmit(evt));
+
+      const dateEl = document.getElementById("field___date");
+      dateEl.value = new Date().toISOString().slice(0, 10);
+    } catch (e) {
+      UiFeedback.showStatus("Erreur au chargement : " + (e && e.message ? e.message : e), "error");
+      Logger.error(e);
+    }
+  },
+
+  populateAgentSelect() {
+    const sel = document.getElementById("field___agent");
+    sel.innerHTML = `<option value="">— Sélectionner —</option>` +
+      this.agentsList.map(a => `<option value="${a.id}">${escapeHtml(a.label)}</option>`).join("");
+  },
+
+  onAgentChange() {
+    const agentId = Number(document.getElementById("field___agent").value) || null;
+    const agent = this.agentsList.find(a => a.id === agentId);
+
+    document.getElementById("siteServiceDisplay").textContent = agent
+      ? (agent.serviceDisplay || "—")
+      : "Sélectionnez un agent";
+
+    const fsFormulaire = document.getElementById("fsFormulaire");
+    const formulaireSel = document.getElementById("field___formulaire");
+    this.currentFormulaire = null;
+    this.resetDetailSection();
+
+    if (!agent) {
+      fsFormulaire.disabled = true;
+      formulaireSel.innerHTML = `<option value="">— Sélectionnez d'abord un agent —</option>`;
+      return;
+    }
+
+    const accessibles = this.formulairesList.filter(f => agent.formulaireIds.includes(f.id));
+    if (accessibles.length === 0) {
+      fsFormulaire.disabled = true;
+      formulaireSel.innerHTML = `<option value="">— Aucun formulaire affecté à cet agent —</option>`;
+      UiFeedback.showStatus("Cet agent n'a aucun formulaire affecté (voir Agents.Formulaires_Accessibles).", "warn");
+      return;
+    }
+
+    UiFeedback.showStatus("", "");
+    fsFormulaire.disabled = false;
+    formulaireSel.innerHTML = `<option value="">— Sélectionner —</option>` +
+      accessibles.map(f => `<option value="${f.id}">${escapeHtml(f.titre)}</option>`).join("");
+  },
+
+  async onFormulaireChange() {
+    const formulaireId = Number(document.getElementById("field___formulaire").value) || null;
+    this.currentFormulaire = this.formulairesList.find(f => f.id === formulaireId) || null;
+    this.resetDetailSection();
+
+    if (!this.currentFormulaire) return;
+    if (!this.currentFormulaire.tableTechnique) {
+      UiFeedback.showStatus(
+        `Le formulaire "${this.currentFormulaire.titre}" n'a pas de Table_Technique renseignée dans Formulaires.`,
+        "error"
+      );
+      return;
+    }
+
+    UiFeedback.showStatus("Chargement des champs du formulaire…", "");
+    try {
+      const result = await SchemaService.getFieldsForTable(this.currentFormulaire.tableTechnique);
+      this.currentDetailFields = result.fields;
+      Logger.debug(
+        `Champs détectés pour "${this.currentFormulaire.tableTechnique}" (${this.currentDetailFields.length}) :`,
+        this.currentDetailFields
+      );
+      this.renderDetailFields();
+
+      if (result.skipped.length > 0) {
+        const details = result.skipped.map(s => `${s.colId} (${s.reason})`).join(", ");
+        UiFeedback.showStatus(
+          `⚠️ Formulaire chargé, mais ${result.skipped.length} colonne(s) non affichée(s) automatiquement : ${details}. ` +
+          `À vérifier dans Grist (type de colonne non pris en charge, ou colonne jamais renseignée donc considérée comme formule).`,
+          "warn"
+        );
+      } else {
+        UiFeedback.showStatus("", "");
+      }
+    } catch (e) {
+      UiFeedback.showStatus("Erreur lors du chargement du formulaire : " + (e && e.message ? e.message : e), "error");
+      Logger.error(e);
+    }
+  },
+
+  renderDetailFields() {
+    const fs = document.getElementById("fsDetail");
+    const container = document.getElementById("detailFieldsContainer");
+    document.getElementById("fsDetailLegend").textContent = this.currentFormulaire.titre;
+    container.innerHTML = "";
+
+    if (this.currentDetailFields.length === 0) {
+      container.className = "empty-hint";
+      container.textContent = "Aucun champ détecté automatiquement pour ce formulaire (voir la console pour le détail).";
+      fs.disabled = true;
+      return;
+    }
+
+    container.className = "";
+    this.currentDetailFields.forEach(f => container.appendChild(FieldTypes[f.type].render(f)));
+    fs.disabled = false;
+  },
+
+  resetDetailSection() {
+    this.currentDetailFields = [];
+    const fs = document.getElementById("fsDetail");
+    fs.disabled = true;
+    document.getElementById("fsDetailLegend").textContent = "Détails";
+    const container = document.getElementById("detailFieldsContainer");
+    container.className = "empty-hint";
+    container.textContent = "Sélectionnez un formulaire pour afficher ses champs.";
+  },
+
+  async onSubmit(evt) {
+    evt.preventDefault();
+    UiFeedback.clearFieldErrors();
+
+    const agentId = Number(document.getElementById("field___agent").value) || null;
+    const dateEl = document.getElementById("field___date");
+    const errors = [];
+
+    if (!agentId) errors.push("Agent requis.");
+    if (!this.currentFormulaire) errors.push("Formulaire requis.");
+    if (!dateEl.value) errors.push("Date requise.");
+
+    const detail = this.currentDetailFields.length
+      ? Validator.validate(this.currentDetailFields)
+      : { values: {}, errors: [] };
+    detail.errors.forEach(({ field, message }) => UiFeedback.markFieldError(field, message));
+
+    if (errors.length > 0 || detail.errors.length > 0) {
+      UiFeedback.showStatus(errors.concat("Merci de compléter les champs obligatoires.").join(" "), "error");
+      return;
+    }
+
+    const submitBtn = document.getElementById("submitBtn");
+    submitBtn.disabled = true;
+    UiFeedback.showStatus("Enregistrement en cours…", "");
+
+    try {
+      // Upload des éventuelles pièces jointes, AVANT ReponseService.submit :
+      // les IDs générés doivent être résolus et présents dans detailValues
+      // avant que le job de reprise ne soit sauvegardé (voir
+      // ReponseService.submit), pour que la reprise automatique n'ait pas
+      // à refaire l'upload en cas d'interruption de session.
+      const attachmentUploadFailures = [];
+      for (const f of this.currentDetailFields) {
+        if (f.type !== "attachment") continue;
+        const files = detail.values[f.name];
+        if (files && files.length > 0) {
+          try {
+            UiFeedback.showStatus(`Envoi de la pièce jointe "${f.label}"…`, "");
+            const attachmentIds = await GristApi.uploadAttachments(files);
+            // Format de liste attendu par Grist en écriture : ["L", id1, id2, ...]
+            detail.values[f.name] = ["L", ...attachmentIds];
+          } catch (e) {
+            Logger.error(`Échec upload "${f.label}" :`, e);
+            attachmentUploadFailures.push(f.label);
+            detail.values[f.name] = null;
+          }
+        } else {
+          detail.values[f.name] = null;
+        }
+      }
+
+      const dateValue = Math.floor(new Date(dateEl.value).getTime() / 1000);
+      UiFeedback.showStatus("Enregistrement en cours…", "");
+      await ReponseService.submit({
+        agentId,
+        formulaireId: this.currentFormulaire.id,
+        date: dateValue,
+        detailTable: this.currentFormulaire.tableTechnique,
+        detailValues: detail.values,
+      });
+
+      const warningSuffix = attachmentUploadFailures.length
+        ? ` (⚠️ pièce(s) jointe(s) non envoyée(s) : ${attachmentUploadFailures.join(", ")} — à ajouter manuellement)`
+        : "";
+      UiFeedback.showStatus("Intervention enregistrée avec succès." + warningSuffix, attachmentUploadFailures.length ? "warn" : "success");
+      evt.target.reset();
+      this.currentFormulaire = null;
+      this.resetDetailSection();
+      document.getElementById("siteServiceDisplay").textContent = "Sélectionnez un agent";
+      document.getElementById("fsFormulaire").disabled = true;
+      dateEl.value = new Date().toISOString().slice(0, 10);
+    } catch (e) {
+      const detailMsg = (e && e.message) ? e.message : JSON.stringify(e);
+      UiFeedback.showStatus("Erreur lors de l'enregistrement : " + detailMsg, "error");
+      Logger.error(e);
+    } finally {
+      submitBtn.disabled = false;
+    }
+  },
+};
+
+grist.ready({ requiredAccess: "full" });
+App.init();
+</script>
+
+</body>
+</html>
