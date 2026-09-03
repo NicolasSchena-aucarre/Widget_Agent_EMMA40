@@ -365,6 +365,23 @@
     return Math.floor(new Date(s + 'T12:00:00Z').getTime()/1000);
   }
 
+  // grist.docApi.uploadAttachment n'existe pas dans toutes les versions de
+  // l'API des widgets. On passe donc par l'API REST du document via un
+  // jeton d'accès temporaire (grist.docApi.getAccessTokenInfo), ce qui est
+  // la méthode plus largement disponible. Chaque échec est isolé : une
+  // pièce jointe qui ne s'envoie pas n'empêche pas le reste d'être
+  // enregistré.
+  async function uploadAttachmentViaRest(file){
+    var tokenInfo = await grist.docApi.getAccessTokenInfo();
+    var url = tokenInfo.baseUrl + '/attachments?auth=' + encodeURIComponent(tokenInfo.token);
+    var formData = new FormData();
+    formData.append('upload', file, file.name);
+    var res = await fetch(url, { method:'POST', body: formData });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var data = await res.json();
+    return Array.isArray(data) ? data[0] : data;
+  }
+
   // ---------------------------------------------------------------
   // Chargement des données
   // ---------------------------------------------------------------
@@ -382,14 +399,17 @@
       };
     });
 
-    var idx = -1;
-    if (agentsTable.Est_Agent_Connecte) {
-      idx = agentsTable.Est_Agent_Connecte.findIndex(function(v){ return v === true; });
-    }
-
-    if (idx >= 0) {
-      applyAgentFromRow(idx);
+    // Pas de colonne "qui suis-je" : on s'appuie sur les Règles d'accès du
+    // document, qui restreignent la table Agents à la seule ligne de
+    // l'utilisateur connecté (voir instructions de configuration). Si la
+    // restriction est bien en place, on ne reçoit qu'une seule ligne.
+    if (agentsTable.id.length === 1) {
+      applyAgentFromRow(0);
     } else {
+      // 0 ligne : l'agent connecté n'a pas de ligne correspondante (ou la
+      // règle d'accès n'est pas configurée). Plusieurs lignes : compte
+      // propriétaire/administrateur qui voit tout, ou règle absente.
+      // Dans les deux cas, on retombe sur la sélection manuelle.
       state.manualMode = true;
     }
   }
@@ -708,21 +728,30 @@
       var reponseId = addReponse.retValues[0];
       values.Reponse = reponseId;
 
+      var attachmentWarning = false;
       for (var j = 0; j < pendingFiles.length; j++){
         var pf = pendingFiles[j];
         var attIds = [];
-        for (var k = 0; k < pf.files.length; k++){
-          var attId = await grist.docApi.uploadAttachment(pf.files[k], pf.files[k].name);
-          attIds.push(attId);
+        try {
+          for (var k = 0; k < pf.files.length; k++){
+            var attId = await uploadAttachmentViaRest(pf.files[k]);
+            attIds.push(attId);
+          }
+          values[pf.key] = attIds;
+        } catch (uploadErr) {
+          console.error('Échec upload pièce jointe (' + pf.key + ')', uploadErr);
+          attachmentWarning = true;
+          // on continue sans cette pièce jointe plutôt que de tout bloquer
         }
-        values[pf.key] = attIds;
       }
 
       await grist.docApi.applyUserActions([
         ['AddRecord', formulaire.table, null, values]
       ]);
 
-      state.toast = { type:'success', msg:'Formulaire enregistré.' };
+      state.toast = attachmentWarning
+        ? { type:'error', msg:'Enregistré, mais la photo n’a pas pu être envoyée.' }
+        : { type:'success', msg:'Formulaire enregistré.' };
     } catch (err) {
       console.error(err);
       state.toast = { type:'error', msg:'Échec de l’enregistrement : ' + (err && err.message ? err.message : err) };
