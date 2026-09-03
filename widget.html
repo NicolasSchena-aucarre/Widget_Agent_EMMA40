@@ -631,6 +631,19 @@
   }
 
   function bindDynamicForm(formulaire){
+    var formEl = document.getElementById('dynamic-form');
+    if (formEl){
+      // Empêche toute soumission native du formulaire (touche Entrée sur
+      // mobile, "Go"/"Valider" du clavier virtuel, etc.), qui provoquerait
+      // un rechargement complet de la page et interromprait l'enregistrement
+      // en cours. Seul le bouton "Enregistrer" doit déclencher l'envoi.
+      formEl.addEventListener('submit', function(e){ e.preventDefault(); });
+      formEl.addEventListener('keydown', function(e){
+        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA'){
+          e.preventDefault();
+        }
+      });
+    }
     if (!formulaire) return;
     var fields = FIELD_SCHEMAS[formulaire.table] || [];
     fields.forEach(function(f){
@@ -767,6 +780,19 @@
   // ---------------------------------------------------------------
   // Démarrage
   // ---------------------------------------------------------------
+  // Filet de sécurité : toute erreur JS non interceptée ailleurs s'affiche
+  // ici plutôt que de rester silencieuse (utile pour déboguer sur mobile,
+  // où la console n'est pas accessible).
+  window.addEventListener('error', function(e){
+    state.toast = { type:'error', msg:'Erreur : ' + (e.message || e) };
+    render();
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    var reason = e.reason && e.reason.message ? e.reason.message : e.reason;
+    state.toast = { type:'error', msg:'Erreur : ' + reason };
+    render();
+  });
+
   grist.ready({ requiredAccess: 'full' });
 
   loadData()
