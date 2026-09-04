@@ -331,7 +331,7 @@
 (function(){
   "use strict";
 
-  var WIDGET_BUILD = '2026-09-04-v11';
+  var WIDGET_BUILD = '2026-09-04-v12';
   console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
 
   var grist = window.grist;
@@ -1026,7 +1026,11 @@
             var attId = await uploadAttachmentViaRest(pf.files[k]);
             attIds.push(attId);
           }
-          values[pf.key] = attIds;
+          // Les colonnes Pièce jointe attendent un tableau préfixé par
+          // l'indicateur de type "L" (Liste), pas un tableau brut
+          // d'identifiants — sinon Grist essaie d'interpréter le premier
+          // élément comme un code de type et affiche #KeyError.
+          values[pf.key] = ['L'].concat(attIds);
         } catch (uploadErr) {
           console.error('Échec upload pièce jointe (' + pf.key + ')', uploadErr);
           attachmentWarning = true;
