@@ -331,7 +331,7 @@
 (function(){
   "use strict";
 
-  var WIDGET_BUILD = '2026-09-04-v12';
+  var WIDGET_BUILD = '2026-09-04-v13';
   console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
 
   var grist = window.grist;
@@ -659,7 +659,7 @@
       return fieldWrap(labelHtml + '<input type="date" id="' + id + '" value="' + val + '" ' + (f.required?'required':'') + '>');
     }
     if (f.type === 'attachment'){
-      return fieldWrap(labelHtml + '<input type="file" id="' + id + '" accept="image/*" capture="environment" multiple>');
+      return fieldWrap(labelHtml + '<input type="file" id="' + id + '" accept="image/*,application/pdf" capture="environment" multiple>');
     }
     if (f.type === 'bool'){
       var on = f.def ? ' on' : '';
