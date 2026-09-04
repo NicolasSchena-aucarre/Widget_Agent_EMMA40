@@ -297,6 +297,9 @@
 (function(){
   "use strict";
 
+  var WIDGET_BUILD = '2026-09-04-v4';
+  console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
+
   var grist = window.grist;
 
   // ---- Champs propres à chaque table technique ----
@@ -451,6 +454,7 @@
 
     if (state.manualMode && !state.agent){
       html += manualPickerHtml();
+      html += versionTagHtml();
       app.innerHTML = html;
       bindManualPicker();
       return;
@@ -464,6 +468,7 @@
 
     if (!state.formulairesAgent || !state.formulairesAgent.length){
       html += '<div class="panel"><p class="empty-note">Aucun formulaire n’est associé à cet agent pour le moment. Contactez votre responsable pour obtenir un accès.</p></div>';
+      html += versionTagHtml();
       app.innerHTML = html;
       bindGlobal();
       return;
@@ -472,6 +477,7 @@
     html += segmentedHtml();
     var formulaire = state.formulaires[state.selectedFormulaireId];
     html += dynamicFormHtml(formulaire);
+    html += versionTagHtml();
     html += actionBarHtml();
 
     app.innerHTML = html;
@@ -576,6 +582,10 @@
         labelHtml + '<div class="pills">' + pills + '</div></div>';
     }
     return '';
+  }
+
+  function versionTagHtml(){
+    return '<div style="text-align:center;font-size:.7rem;color:var(--muted);padding:6px 0 90px;">build ' + WIDGET_BUILD + '</div>';
   }
 
   function actionBarHtml(){
