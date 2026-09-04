@@ -331,7 +331,7 @@
 (function(){
   "use strict";
 
-  var WIDGET_BUILD = '2026-09-04-v9';
+  var WIDGET_BUILD = '2026-09-04-v10';
   console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
 
   var grist = window.grist;
@@ -411,6 +411,38 @@
   // la méthode plus largement disponible. Chaque échec est isolé : une
   // pièce jointe qui ne s'envoie pas n'empêche pas le reste d'être
   // enregistré.
+  // Le docId "court" utilisé dans l'URL du document (ex. f99r74L5RvXs) est
+  // différent de l'id canonique interne encodé dans le jeton d'accès (ex.
+  // f99r74L5RvXsoLcEZcY1BR). getAccessToken() renvoie parfois une baseUrl
+  // construite avec le premier, alors que le serveur valide la requête par
+  // rapport au second — d'où un 401 (masqué en erreur CORS par le
+  // navigateur, faute d'en-tête CORS sur les réponses d'erreur de Grist).
+  // On extrait donc le docId canonique directement depuis le jeton (il est
+  // en clair dans sa partie centrale, pas besoin d'appel réseau) et on
+  // corrige l'URL en conséquence.
+  function decodeJwtDocId(token){
+    try {
+      var payloadB64 = token.split('.')[1];
+      var normalized = payloadB64.replace(/-/g, '+').replace(/_/g, '/');
+      while (normalized.length % 4) normalized += '=';
+      var payload = JSON.parse(atob(normalized));
+      return payload && payload.docId ? payload.docId : null;
+    } catch (e){
+      return null;
+    }
+  }
+
+  function buildAttachmentsUrl(tokenInfo){
+    var canonicalDocId = decodeJwtDocId(tokenInfo.token);
+    var m = tokenInfo.baseUrl.match(/^(.*\/api\/docs\/)([^\/?]+)$/);
+    var baseUrl = tokenInfo.baseUrl;
+    if (m && canonicalDocId && m[2] !== canonicalDocId){
+      baseUrl = m[1] + canonicalDocId;
+      console.log('[Formulaire terrain] baseUrl corrigée : ' + tokenInfo.baseUrl + ' -> ' + baseUrl);
+    }
+    return baseUrl + '/attachments?auth=' + encodeURIComponent(tokenInfo.token);
+  }
+
   async function uploadAttachmentViaRest(file){
     var tokenInfo;
     try {
@@ -418,15 +450,15 @@
     } catch (tokenErr) {
       throw new Error('Jeton d’accès refusé : ' + (tokenErr && tokenErr.message ? tokenErr.message : tokenErr));
     }
-    var url = tokenInfo.baseUrl + '/attachments?auth=' + encodeURIComponent(tokenInfo.token);
-    console.log('[Formulaire terrain] upload vers ' + tokenInfo.baseUrl + '/attachments (voir onglet Réseau pour le détail)');
+    var url = buildAttachmentsUrl(tokenInfo);
+    console.log('[Formulaire terrain] upload vers ' + url.split('?')[0] + ' (voir onglet Réseau pour le détail)');
     var formData = new FormData();
     formData.append('upload', file, file.name);
     var res;
     try {
       res = await fetch(url, { method:'POST', body: formData });
     } catch (networkErr) {
-      throw new Error('Requête bloquée avant même d’atteindre le serveur (probable CORS) — cible : ' + tokenInfo.baseUrl);
+      throw new Error('Requête bloquée avant même d’atteindre le serveur (probable CORS) — cible : ' + url.split('?')[0]);
     }
     if (!res.ok){
       var bodyText = '';
