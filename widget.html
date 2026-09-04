@@ -331,7 +331,7 @@
 (function(){
   "use strict";
 
-  var WIDGET_BUILD = '2026-09-04-v10';
+  var WIDGET_BUILD = '2026-09-04-v11';
   console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
 
   var grist = window.grist;
@@ -443,6 +443,14 @@
     return baseUrl + '/attachments?auth=' + encodeURIComponent(tokenInfo.token);
   }
 
+  // Grist exige, pour toute requête POST, l'un de ces deux en-têtes comme
+  // protection anti-CSRF : Content-Type: application/json OU
+  // X-Requested-With: XMLHttpRequest. Un fetch() avec FormData ne pose
+  // aucun des deux par défaut (Content-Type devient multipart/form-data),
+  // donc la requête était traitée comme "non authentifiée" avant même de
+  // vérifier le jeton — d'où le 401, qui remontait ensuite comme une
+  // fausse erreur CORS côté navigateur (la réponse d'erreur de Grist ne
+  // porte pas d'en-tête CORS).
   async function uploadAttachmentViaRest(file){
     var tokenInfo;
     try {
@@ -456,7 +464,11 @@
     formData.append('upload', file, file.name);
     var res;
     try {
-      res = await fetch(url, { method:'POST', body: formData });
+      res = await fetch(url, {
+        method:'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: formData
+      });
     } catch (networkErr) {
       throw new Error('Requête bloquée avant même d’atteindre le serveur (probable CORS) — cible : ' + url.split('?')[0]);
     }
