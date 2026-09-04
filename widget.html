@@ -331,7 +331,7 @@
 (function(){
   "use strict";
 
-  var WIDGET_BUILD = '2026-09-04-v7';
+  var WIDGET_BUILD = '2026-09-04-v8';
   console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
 
   var grist = window.grist;
@@ -407,17 +407,21 @@
 
   // grist.docApi.uploadAttachment n'existe pas dans toutes les versions de
   // l'API des widgets. On passe donc par l'API REST du document via un
-  // jeton d'accès temporaire (grist.docApi.getAccessTokenInfo), ce qui est
+  // jeton d'accès temporaire (grist.docApi.getAccessToken), ce qui est
   // la méthode plus largement disponible. Chaque échec est isolé : une
   // pièce jointe qui ne s'envoie pas n'empêche pas le reste d'être
   // enregistré.
   async function uploadAttachmentViaRest(file){
-    var tokenInfo = await grist.docApi.getAccessTokenInfo();
+    var tokenInfo = await grist.docApi.getAccessToken({ readOnly: false });
     var url = tokenInfo.baseUrl + '/attachments?auth=' + encodeURIComponent(tokenInfo.token);
     var formData = new FormData();
     formData.append('upload', file, file.name);
     var res = await fetch(url, { method:'POST', body: formData });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (!res.ok){
+      var bodyText = '';
+      try { bodyText = await res.text(); } catch(e){}
+      throw new Error('HTTP ' + res.status + (bodyText ? ' — ' + bodyText.slice(0,200) : ''));
+    }
     var data = await res.json();
     return Array.isArray(data) ? data[0] : data;
   }
@@ -958,6 +962,7 @@
       // ça ne dépend d'aucun id de ligne, et si l'upload échoue on continue
       // quand même (on ne bloque jamais l'enregistrement pour une photo).
       var attachmentWarning = false;
+      var attachmentErrorDetail = '';
       for (var j = 0; j < pendingFiles.length; j++){
         var pf = pendingFiles[j];
         var attIds = [];
@@ -970,6 +975,7 @@
         } catch (uploadErr) {
           console.error('Échec upload pièce jointe (' + pf.key + ')', uploadErr);
           attachmentWarning = true;
+          attachmentErrorDetail = uploadErr && uploadErr.message ? uploadErr.message : String(uploadErr);
           // on continue sans cette pièce jointe plutôt que de tout bloquer
         }
       }
@@ -986,7 +992,7 @@
       );
 
       state.toast = attachmentWarning
-        ? { type:'error', msg:'Enregistré, mais la photo n’a pas pu être envoyée.' }
+        ? { type:'error', msg:'Enregistré, mais la photo n’a pas pu être envoyée (' + attachmentErrorDetail + ').' }
         : { type:'success', msg:'Formulaire enregistré.' };
     } catch (err) {
       console.error(err);
