@@ -331,7 +331,7 @@
 (function(){
   "use strict";
 
-  var WIDGET_BUILD = '2026-09-04-v8';
+  var WIDGET_BUILD = '2026-09-04-v9';
   console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
 
   var grist = window.grist;
@@ -412,11 +412,22 @@
   // pièce jointe qui ne s'envoie pas n'empêche pas le reste d'être
   // enregistré.
   async function uploadAttachmentViaRest(file){
-    var tokenInfo = await grist.docApi.getAccessToken({ readOnly: false });
+    var tokenInfo;
+    try {
+      tokenInfo = await grist.docApi.getAccessToken({ readOnly: false });
+    } catch (tokenErr) {
+      throw new Error('Jeton d’accès refusé : ' + (tokenErr && tokenErr.message ? tokenErr.message : tokenErr));
+    }
     var url = tokenInfo.baseUrl + '/attachments?auth=' + encodeURIComponent(tokenInfo.token);
+    console.log('[Formulaire terrain] upload vers ' + tokenInfo.baseUrl + '/attachments (voir onglet Réseau pour le détail)');
     var formData = new FormData();
     formData.append('upload', file, file.name);
-    var res = await fetch(url, { method:'POST', body: formData });
+    var res;
+    try {
+      res = await fetch(url, { method:'POST', body: formData });
+    } catch (networkErr) {
+      throw new Error('Requête bloquée avant même d’atteindre le serveur (probable CORS) — cible : ' + tokenInfo.baseUrl);
+    }
     if (!res.ok){
       var bodyText = '';
       try { bodyText = await res.text(); } catch(e){}
