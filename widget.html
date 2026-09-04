@@ -331,7 +331,7 @@
 (function(){
   "use strict";
 
-  var WIDGET_BUILD = '2026-09-04-v5';
+  var WIDGET_BUILD = '2026-09-04-v6';
   console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
 
   var grist = window.grist;
@@ -918,13 +918,38 @@
     // orpheline sans son détail technique, contrairement à l'ancien
     // enchaînement en deux appels séparés.
     //
-    // L'ID est basé sur l'horodatage (ms) pour être quasi-certainement
-    // inédit sans avoir à consulter la table au préalable ; largement
-    // suffisant en volume (aucune limite pratique avant des décennies) et
-    // sans risque de collision entre deux agents soumettant au même
-    // instant (résolu par le suffixe aléatoire).
+    // L'ID doit rester dans la plage d'identifiants que Grist accepte
+    // (un entier "raisonnable", pas un horodatage en millisecondes qui
+    // est bien trop grand et déclenche "Row ID too high"). On tire donc
+    // un entier aléatoire dans une plage large mais valide. On ne peut
+    // pas non plus calculer un "max id + 1" côté client : un Agent ne
+    // voit, via les règles ACL, que SES propres lignes dans Reponses, pas
+    // l'ensemble de la table — un tel calcul entrerait régulièrement en
+    // collision avec des lignes d'autres agents qu'il ne voit pas. En cas
+    // de collision malgré tout (extrêmement improbable), on retire un
+    // nouvel identifiant et on retente.
     function generateRowId(){
-      return Date.now() * 1000 + Math.floor(Math.random() * 1000);
+      return Math.floor(Math.random() * 2000000000) + 1;
+    }
+
+    async function addReponseAndDetail(reponseFields, technicalTable, technicalValuesBase){
+      var maxAttempts = 5;
+      for (var attempt = 1; attempt <= maxAttempts; attempt++){
+        var reponseId = generateRowId();
+        var technicalValues = Object.assign({}, technicalValuesBase, { Reponse: reponseId });
+        try {
+          await grist.docApi.applyUserActions([
+            ['AddRecord', 'Reponses', reponseId, reponseFields],
+            ['AddRecord', technicalTable, null, technicalValues]
+          ]);
+          return;
+        } catch (err) {
+          var msg = (err && err.message) ? err.message : String(err);
+          var collision = /already exists|duplicate|row id/i.test(msg);
+          if (!collision || attempt === maxAttempts) throw err;
+          // Collision d'id : on boucle avec un nouvel identifiant tiré au sort.
+        }
+      }
     }
 
     // À partir d'ici, on ne redessine plus le formulaire tant que la
@@ -958,20 +983,16 @@
         }
       }
 
-      var reponseId = generateRowId();
-      values.Reponse = reponseId;
-
-      // Un seul envoi, deux actions : Grist les applique ensemble ou pas
-      // du tout.
-      await grist.docApi.applyUserActions([
-        ['AddRecord', 'Reponses', reponseId, {
+      await addReponseAndDetail(
+        {
           Agent: state.agent.id,
           Formulaire: state.selectedFormulaireId,
           Date_Intervention: dateEpoch,
           Statut: 'Déclaré'
-        }],
-        ['AddRecord', formulaire.table, null, values]
-      ]);
+        },
+        formulaire.table,
+        values
+      );
 
       state.toast = attachmentWarning
         ? { type:'error', msg:'Enregistré, mais la photo n’a pas pu être envoyée.' }
