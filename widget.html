@@ -331,7 +331,7 @@
 (function(){
   "use strict";
 
-  var WIDGET_BUILD = '2026-09-04-v6';
+  var WIDGET_BUILD = '2026-09-04-v7';
   console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
 
   var grist = window.grist;
@@ -909,46 +909,37 @@
       }
     }
 
-    // On génère nous-mêmes l'identifiant de la future ligne Reponses, pour
-    // pouvoir créer CETTE ligne et la ligne technique liée dans un seul et
-    // même envoi à applyUserActions. Grist applique un lot d'actions de
-    // façon atomique (tout ou rien) : si quoi que ce soit échoue (règle
-    // ACL, coupure réseau, rechargement de page en plein milieu…), AUCUNE
-    // des deux lignes n'est créée — impossible d'obtenir une Reponses
-    // orpheline sans son détail technique, contrairement à l'ancien
-    // enchaînement en deux appels séparés.
+    // On avait tenté de pré-assigner l'id de la future ligne Reponses pour
+    // tout envoyer en un seul lot atomique. Grist refuse cependant les id
+    // "trop hauts" par rapport à la taille actuelle de la table (structure
+    // interne dimensionnée sur l'id max utilisé) — donc un id choisi côté
+    // client, quelle que soit sa valeur, n'est pas fiable ici.
     //
-    // L'ID doit rester dans la plage d'identifiants que Grist accepte
-    // (un entier "raisonnable", pas un horodatage en millisecondes qui
-    // est bien trop grand et déclenche "Row ID too high"). On tire donc
-    // un entier aléatoire dans une plage large mais valide. On ne peut
-    // pas non plus calculer un "max id + 1" côté client : un Agent ne
-    // voit, via les règles ACL, que SES propres lignes dans Reponses, pas
-    // l'ensemble de la table — un tel calcul entrerait régulièrement en
-    // collision avec des lignes d'autres agents qu'il ne voit pas. En cas
-    // de collision malgré tout (extrêmement improbable), on retire un
-    // nouvel identifiant et on retente.
-    function generateRowId(){
-      return Math.floor(Math.random() * 2000000000) + 1;
-    }
-
+    // On revient à la méthode standard : laisser Grist assigner les id
+    // automatiquement, en deux appels séparés. Pour ne pas laisser de
+    // ligne orpheline dans Reponses si la deuxième écriture échoue (règle
+    // ACL, validation…), on supprime automatiquement la ligne Reponses
+    // qu'on vient de créer dans ce cas précis (compensation).
     async function addReponseAndDetail(reponseFields, technicalTable, technicalValuesBase){
-      var maxAttempts = 5;
-      for (var attempt = 1; attempt <= maxAttempts; attempt++){
-        var reponseId = generateRowId();
-        var technicalValues = Object.assign({}, technicalValuesBase, { Reponse: reponseId });
+      var addReponse = await grist.docApi.applyUserActions([
+        ['AddRecord', 'Reponses', null, reponseFields]
+      ]);
+      var reponseId = addReponse.retValues[0];
+      var technicalValues = Object.assign({}, technicalValuesBase, { Reponse: reponseId });
+
+      try {
+        await grist.docApi.applyUserActions([
+          ['AddRecord', technicalTable, null, technicalValues]
+        ]);
+      } catch (detailErr) {
         try {
           await grist.docApi.applyUserActions([
-            ['AddRecord', 'Reponses', reponseId, reponseFields],
-            ['AddRecord', technicalTable, null, technicalValues]
+            ['RemoveRecord', 'Reponses', reponseId]
           ]);
-          return;
-        } catch (err) {
-          var msg = (err && err.message) ? err.message : String(err);
-          var collision = /already exists|duplicate|row id/i.test(msg);
-          if (!collision || attempt === maxAttempts) throw err;
-          // Collision d'id : on boucle avec un nouvel identifiant tiré au sort.
+        } catch (rollbackErr) {
+          console.error('Échec de la compensation (suppression de la ligne Reponses orpheline)', rollbackErr);
         }
+        throw detailErr;
       }
     }
 
