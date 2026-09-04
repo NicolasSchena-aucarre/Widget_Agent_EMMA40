@@ -280,6 +280,40 @@
   .toast.success{background:#E4F3EA;color:var(--ok);border:1px solid #BFE3CD;}
   .toast.error{background:#FBE9E4;color:var(--amber);border:1px solid #F0C2AE;}
 
+  .address-wrap{position:relative;}
+  .address-suggestions{
+    position:absolute;
+    left:0;right:0;top:calc(100% + 4px);
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:8px;
+    box-shadow:0 6px 16px rgba(0,0,0,.12);
+    max-height:220px;
+    overflow-y:auto;
+    z-index:30;
+    display:none;
+  }
+  .address-suggestions.open{display:block;}
+  .address-suggestions .sugg-item{
+    padding:9px 12px;
+    font-size:.88rem;
+    cursor:pointer;
+    border-bottom:1px solid var(--line);
+  }
+  .address-suggestions .sugg-item:last-child{border-bottom:none;}
+  .address-suggestions .sugg-item:hover,
+  .address-suggestions .sugg-item.highlighted{background:var(--paper);}
+  .address-suggestions .sugg-empty{
+    padding:9px 12px;
+    font-size:.85rem;
+    color:var(--muted);
+  }
+  .address-status{
+    font-size:.75rem;
+    color:var(--muted);
+    margin-top:4px;
+  }
+
   .empty-note{
     color:var(--muted);
     font-size:.9rem;
@@ -297,7 +331,7 @@
 (function(){
   "use strict";
 
-  var WIDGET_BUILD = '2026-09-04-v4';
+  var WIDGET_BUILD = '2026-09-04-v5';
   console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
 
   var grist = window.grist;
@@ -305,6 +339,7 @@
   // ---- Champs propres à chaque table technique ----
   var FIELD_SCHEMAS = {
     Releve_de_compteur: [
+      {key:'Adresse', label:'Adresse', type:'address', required:true, placeholder:'Commencez à taper une adresse…'},
       {key:'Numero_Compteur', label:'Numéro de compteur', type:'text', required:true, placeholder:'Ex. CPT-04521'},
       {key:'Unite_Mesure', label:'Unité de mesure', type:'choice', options:['m³','litres'], required:true, def:'m³'},
       {key:'Index_Releve', label:'Index relevé', type:'number', required:true, step:'0.01'},
@@ -314,6 +349,7 @@
       {key:'Commentaire', label:'Commentaire', type:'textarea'}
     ],
     Signalement_de_fuite: [
+      {key:'Adresse', label:'Adresse', type:'address', required:true, placeholder:'Commencez à taper une adresse…'},
       {key:'Type_Fuite', label:'Type de fuite', type:'choice', options:['Canalisation','Raccordement','Vanne','Compteur','Autre'], required:true},
       {key:'Gravite', label:'Gravité', type:'choice', options:['Faible','Modérée','Critique'], required:true},
       {key:'Date_Detection', label:'Date de détection', type:'date', required:true, today:true},
@@ -325,6 +361,7 @@
       {key:'Description', label:'Description', type:'textarea', required:true}
     ],
     Controle_qualite_reseau: [
+      {key:'Adresse', label:'Adresse', type:'address', required:true, placeholder:'Commencez à taper une adresse…'},
       {key:'Point_Controle', label:'Point de contrôle', type:'text', required:true, placeholder:'Ex. Regard R12'},
       {key:'Conformite', label:'Conformité', type:'choice', options:['Conforme','Non conforme','À surveiller'], required:true},
       {key:'Pression_Bar', label:'Pression', unit:'bar', type:'number', step:'0.1'},
@@ -573,6 +610,17 @@
         '<span class="switch' + on + '" id="' + id + '"><span class="knob"></span></span>' +
       '</div>';
     }
+    if (f.type === 'address'){
+      return fieldWrap(
+        labelHtml +
+        '<div class="address-wrap">' +
+          '<input type="text" id="' + id + '" autocomplete="off" ' + (f.required?'required':'') +
+            (f.placeholder ? ' placeholder="' + escapeHtml(f.placeholder) + '"' : '') + '>' +
+          '<div class="address-suggestions" id="sugg-' + id + '"></div>' +
+        '</div>' +
+        '<div class="address-status" id="status-' + id + '"></div>'
+      );
+    }
     if (f.type === 'choice'){
       var pills = f.options.map(function(opt){
         var active = opt === f.def ? ' active' : '';
@@ -640,6 +688,135 @@
     if (submitBtn) submitBtn.addEventListener('click', handleSubmit);
   }
 
+  // ---------------------------------------------------------------
+  // Autocomplétion d'adresse via l'API Adresse (Base Adresse Nationale,
+  // adresse.data.gouv.fr) — publique, gratuite, sans clé. On ne branche
+  // que la recherche/suggestion pour l'instant ; le champ reste un texte
+  // libre en base (colonne Adresse), donc pas de migration de schéma
+  // nécessaire pour bénéficier de la fiabilisation de la saisie.
+  // ---------------------------------------------------------------
+  var BAN_URL = 'https://api-adresse.data.gouv.fr/search/';
+  var addressState = {}; // id -> { timer, controller, results, highlighted }
+
+  function debounce(fn, delay){
+    var t;
+    return function(){
+      var args = arguments;
+      clearTimeout(t);
+      t = setTimeout(function(){ fn.apply(null, args); }, delay);
+    };
+  }
+
+  async function fetchBanSuggestions(query){
+    var url = BAN_URL + '?q=' + encodeURIComponent(query) + '&limit=5&autocomplete=1';
+    var res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var data = await res.json();
+    return (data.features || []).map(function(feat){
+      return {
+        label: feat.properties.label,
+        context: feat.properties.context,
+        score: feat.properties.score
+      };
+    });
+  }
+
+  function bindAddressField(id){
+    var input = document.getElementById(id);
+    var box = document.getElementById('sugg-' + id);
+    var status = document.getElementById('status-' + id);
+    if (!input || !box) return;
+    addressState[id] = { results: [], highlighted: -1 };
+
+    function closeBox(){
+      box.classList.remove('open');
+      box.innerHTML = '';
+      addressState[id].results = [];
+      addressState[id].highlighted = -1;
+    }
+
+    function renderSuggestions(){
+      var st = addressState[id];
+      if (!st.results.length){
+        box.innerHTML = '<div class="sugg-empty">Aucune adresse trouvée</div>';
+        box.classList.add('open');
+        return;
+      }
+      box.innerHTML = st.results.map(function(r, i){
+        var cls = 'sugg-item' + (i === st.highlighted ? ' highlighted' : '');
+        return '<div class="' + cls + '" data-idx="' + i + '">' + escapeHtml(r.label) +
+          (r.context ? ' <span style="color:var(--muted);">— ' + escapeHtml(r.context) + '</span>' : '') +
+        '</div>';
+      }).join('');
+      box.classList.add('open');
+      box.querySelectorAll('.sugg-item').forEach(function(el){
+        el.addEventListener('mousedown', function(e){
+          e.preventDefault(); // évite le blur avant le clic
+          var idx = Number(el.getAttribute('data-idx'));
+          selectSuggestion(idx);
+        });
+      });
+    }
+
+    function selectSuggestion(idx){
+      var st = addressState[id];
+      var r = st.results[idx];
+      if (!r) return;
+      input.value = r.label;
+      closeBox();
+      if (status) status.textContent = 'Adresse vérifiée (BAN)';
+    }
+
+    var doSearch = debounce(function(query){
+      if (!query || query.length < 3){
+        closeBox();
+        if (status) status.textContent = '';
+        return;
+      }
+      if (status) status.textContent = 'Recherche…';
+      fetchBanSuggestions(query).then(function(results){
+        addressState[id].results = results;
+        addressState[id].highlighted = -1;
+        renderSuggestions();
+        if (status) status.textContent = results.length ? '' : 'Aucune correspondance — vous pouvez saisir librement';
+      }).catch(function(err){
+        console.error('Recherche adresse BAN échouée', err);
+        if (status) status.textContent = 'Recherche indisponible — saisie libre';
+        closeBox();
+      });
+    }, 300);
+
+    input.addEventListener('input', function(){
+      if (status) status.textContent = '';
+      doSearch(input.value.trim());
+    });
+
+    input.addEventListener('keydown', function(e){
+      var st = addressState[id];
+      if (!st.results.length) return;
+      if (e.key === 'ArrowDown'){
+        e.preventDefault();
+        st.highlighted = Math.min(st.highlighted + 1, st.results.length - 1);
+        renderSuggestions();
+      } else if (e.key === 'ArrowUp'){
+        e.preventDefault();
+        st.highlighted = Math.max(st.highlighted - 1, 0);
+        renderSuggestions();
+      } else if (e.key === 'Enter'){
+        if (st.highlighted >= 0){
+          e.preventDefault();
+          selectSuggestion(st.highlighted);
+        }
+      } else if (e.key === 'Escape'){
+        closeBox();
+      }
+    });
+
+    input.addEventListener('blur', function(){
+      setTimeout(closeBox, 100);
+    });
+  }
+
   function bindDynamicForm(formulaire){
     var formEl = document.getElementById('dynamic-form');
     if (formEl){
@@ -658,6 +835,9 @@
     var fields = FIELD_SCHEMAS[formulaire.table] || [];
     fields.forEach(function(f){
       var id = 'field-' + f.key;
+      if (f.type === 'address'){
+        bindAddressField(id);
+      }
       if (f.type === 'bool'){
         var row = document.getElementById('row-' + id);
         var sw = document.getElementById(id);
@@ -729,6 +909,24 @@
       }
     }
 
+    // On génère nous-mêmes l'identifiant de la future ligne Reponses, pour
+    // pouvoir créer CETTE ligne et la ligne technique liée dans un seul et
+    // même envoi à applyUserActions. Grist applique un lot d'actions de
+    // façon atomique (tout ou rien) : si quoi que ce soit échoue (règle
+    // ACL, coupure réseau, rechargement de page en plein milieu…), AUCUNE
+    // des deux lignes n'est créée — impossible d'obtenir une Reponses
+    // orpheline sans son détail technique, contrairement à l'ancien
+    // enchaînement en deux appels séparés.
+    //
+    // L'ID est basé sur l'horodatage (ms) pour être quasi-certainement
+    // inédit sans avoir à consulter la table au préalable ; largement
+    // suffisant en volume (aucune limite pratique avant des décennies) et
+    // sans risque de collision entre deux agents soumettant au même
+    // instant (résolu par le suffixe aléatoire).
+    function generateRowId(){
+      return Date.now() * 1000 + Math.floor(Math.random() * 1000);
+    }
+
     // À partir d'ici, on ne redessine plus le formulaire tant que la
     // soumission n'est pas terminée : on grise juste le bouton directement.
     state.submitting = true;
@@ -740,17 +938,9 @@
     }
 
     try {
-      var addReponse = await grist.docApi.applyUserActions([
-        ['AddRecord', 'Reponses', null, {
-          Agent: state.agent.id,
-          Formulaire: state.selectedFormulaireId,
-          Date_Intervention: dateEpoch,
-          Statut: 'Déclaré'
-        }]
-      ]);
-      var reponseId = addReponse.retValues[0];
-      values.Reponse = reponseId;
-
+      // Les pièces jointes sont envoyées AVANT la création des lignes :
+      // ça ne dépend d'aucun id de ligne, et si l'upload échoue on continue
+      // quand même (on ne bloque jamais l'enregistrement pour une photo).
       var attachmentWarning = false;
       for (var j = 0; j < pendingFiles.length; j++){
         var pf = pendingFiles[j];
@@ -768,7 +958,18 @@
         }
       }
 
+      var reponseId = generateRowId();
+      values.Reponse = reponseId;
+
+      // Un seul envoi, deux actions : Grist les applique ensemble ou pas
+      // du tout.
       await grist.docApi.applyUserActions([
+        ['AddRecord', 'Reponses', reponseId, {
+          Agent: state.agent.id,
+          Formulaire: state.selectedFormulaireId,
+          Date_Intervention: dateEpoch,
+          Statut: 'Déclaré'
+        }],
         ['AddRecord', formulaire.table, null, values]
       ]);
 
