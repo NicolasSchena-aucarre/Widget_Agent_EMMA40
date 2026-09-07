@@ -331,7 +331,7 @@
 (function(){
   "use strict";
 
-  var WIDGET_BUILD = '2026-09-04-v13';
+  var WIDGET_BUILD = '2026-09-04-v15';
   console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
 
   var grist = window.grist;
@@ -432,7 +432,7 @@
     }
   }
 
-  function buildAttachmentsUrl(tokenInfo){
+  function buildApiBase(tokenInfo){
     var canonicalDocId = decodeJwtDocId(tokenInfo.token);
     var m = tokenInfo.baseUrl.match(/^(.*\/api\/docs\/)([^\/?]+)$/);
     var baseUrl = tokenInfo.baseUrl;
@@ -440,7 +440,35 @@
       baseUrl = m[1] + canonicalDocId;
       console.log('[Formulaire terrain] baseUrl corrigée : ' + tokenInfo.baseUrl + ' -> ' + baseUrl);
     }
-    return baseUrl + '/attachments?auth=' + encodeURIComponent(tokenInfo.token);
+    return baseUrl;
+  }
+
+  function buildAttachmentsUrl(tokenInfo){
+    return buildApiBase(tokenInfo) + '/attachments?auth=' + encodeURIComponent(tokenInfo.token);
+  }
+
+  // Envoie un lot d'actions (même format que grist.docApi.applyUserActions)
+  // via l'API REST/jeton, plutôt que via le canal WebSocket habituel. Sert
+  // à garder la même identité "côté jeton" que l'upload de pièce jointe,
+  // au cas où le serveur distinguerait les deux canaux (hypothèse en cours
+  // de vérification sur l'instance self-hosted).
+  async function applyActionsViaRest(tokenInfo, actions){
+    var url = buildApiBase(tokenInfo) + '/apply?auth=' + encodeURIComponent(tokenInfo.token);
+    var res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(actions)
+    });
+    if (!res.ok){
+      var bodyText = '';
+      try { bodyText = await res.text(); } catch(e){}
+      throw new Error('HTTP ' + res.status + (bodyText ? ' — ' + bodyText.slice(0,300) : ''));
+    }
+    var data = await res.json();
+    console.log('[Formulaire terrain] réponse /apply', data);
+    // Le format exact de la réponse de /apply n'est pas garanti identique à
+    // celui de applyUserActions ; on gère les deux formes plausibles.
+    return (data && data.retValues) ? data.retValues : data;
   }
 
   // Grist exige, pour toute requête POST, l'un de ces deux en-têtes comme
@@ -451,13 +479,7 @@
   // vérifier le jeton — d'où le 401, qui remontait ensuite comme une
   // fausse erreur CORS côté navigateur (la réponse d'erreur de Grist ne
   // porte pas d'en-tête CORS).
-  async function uploadAttachmentViaRest(file){
-    var tokenInfo;
-    try {
-      tokenInfo = await grist.docApi.getAccessToken({ readOnly: false });
-    } catch (tokenErr) {
-      throw new Error('Jeton d’accès refusé : ' + (tokenErr && tokenErr.message ? tokenErr.message : tokenErr));
-    }
+  async function uploadAttachmentViaRest(file, tokenInfo){
     var url = buildAttachmentsUrl(tokenInfo);
     console.log('[Formulaire terrain] upload vers ' + url.split('?')[0] + ' (voir onglet Réseau pour le détail)');
     var formData = new FormData();
@@ -494,7 +516,8 @@
       state.formulaires[id] = {
         titre: formulairesTable.Titre[i],
         table: formulairesTable.Table_Technique[i],
-        actif: formulairesTable.Actif[i]
+        actif: formulairesTable.Actif[i],
+        servicesConcernes: toList(formulairesTable.Service_Concerne[i])
       };
     });
 
@@ -515,7 +538,25 @@
 
   function applyAgentFromRow(idx){
     var t = state.agentsRaw;
-    var formIds = toList(t.Formulaires_Accessibles[idx]);
+    var agentServiceId = t.Service ? t.Service[idx] : null;
+
+    // Un formulaire est accessible à l'agent si soit il est listé
+    // individuellement dans Agents.Formulaires_Accessibles, soit le
+    // service de l'agent fait partie des services concernés par ce
+    // formulaire (Formulaires.Service_Concerne) — les deux mécanismes
+    // se cumulent, pas besoin de choisir l'un ou l'autre par agent.
+    var individualIds = toList(t.Formulaires_Accessibles[idx]);
+    var serviceWideIds = Object.keys(state.formulaires)
+      .map(Number)
+      .filter(function(fid){
+        var f = state.formulaires[fid];
+        return agentServiceId != null && f.servicesConcernes.indexOf(agentServiceId) !== -1;
+      });
+    var formIds = individualIds.slice();
+    serviceWideIds.forEach(function(fid){
+      if (formIds.indexOf(fid) === -1) formIds.push(fid);
+    });
+
     var forms = formIds
       .map(function(id){ return Object.assign({id:id}, state.formulaires[id] || {}); })
       .filter(function(f){ return f.titre && f.actif; });
@@ -979,20 +1020,20 @@
     // ligne orpheline dans Reponses si la deuxième écriture échoue (règle
     // ACL, validation…), on supprime automatiquement la ligne Reponses
     // qu'on vient de créer dans ce cas précis (compensation).
-    async function addReponseAndDetail(reponseFields, technicalTable, technicalValuesBase){
-      var addReponse = await grist.docApi.applyUserActions([
+    async function addReponseAndDetail(tokenInfo, reponseFields, technicalTable, technicalValuesBase){
+      var addReponseRet = await applyActionsViaRest(tokenInfo, [
         ['AddRecord', 'Reponses', null, reponseFields]
       ]);
-      var reponseId = addReponse.retValues[0];
+      var reponseId = Array.isArray(addReponseRet) ? addReponseRet[0] : addReponseRet;
       var technicalValues = Object.assign({}, technicalValuesBase, { Reponse: reponseId });
 
       try {
-        await grist.docApi.applyUserActions([
+        await applyActionsViaRest(tokenInfo, [
           ['AddRecord', technicalTable, null, technicalValues]
         ]);
       } catch (detailErr) {
         try {
-          await grist.docApi.applyUserActions([
+          await applyActionsViaRest(tokenInfo, [
             ['RemoveRecord', 'Reponses', reponseId]
           ]);
         } catch (rollbackErr) {
@@ -1013,6 +1054,16 @@
     }
 
     try {
+      // Un seul jeton pour toute la soumission (upload des pièces jointes ET
+      // création des lignes via /apply), pour que tout se fasse sous la
+      // même identité côté serveur.
+      var tokenInfo;
+      try {
+        tokenInfo = await grist.docApi.getAccessToken({ readOnly: false });
+      } catch (tokenErr) {
+        throw new Error('Jeton d’accès refusé : ' + (tokenErr && tokenErr.message ? tokenErr.message : tokenErr));
+      }
+
       // Les pièces jointes sont envoyées AVANT la création des lignes :
       // ça ne dépend d'aucun id de ligne, et si l'upload échoue on continue
       // quand même (on ne bloque jamais l'enregistrement pour une photo).
@@ -1023,7 +1074,7 @@
         var attIds = [];
         try {
           for (var k = 0; k < pf.files.length; k++){
-            var attId = await uploadAttachmentViaRest(pf.files[k]);
+            var attId = await uploadAttachmentViaRest(pf.files[k], tokenInfo);
             attIds.push(attId);
           }
           // Les colonnes Pièce jointe attendent un tableau préfixé par
@@ -1040,6 +1091,7 @@
       }
 
       await addReponseAndDetail(
+        tokenInfo,
         {
           Agent: state.agent.id,
           Formulaire: state.selectedFormulaireId,
