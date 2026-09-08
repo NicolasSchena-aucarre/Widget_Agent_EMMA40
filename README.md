@@ -80,14 +80,6 @@ Les deux widgets sont des sites statiques : aucun serveur ni build n'est nécess
 
 Les deux widgets reposent sur un modèle de données et des Règles d'accès précis (table `Reponses` centrale, tables techniques liées, colonnes « à plat » pour contourner les limites de chaînage des règles ACL, rôles `Agent` / `Manager` / `Responsable_Site` / `Direction`). Ce prototype n'est pas conçu pour fonctionner sur un document Grist quelconque sans adapter les Règles d'accès en conséquence — voir `docs/IT_Creation_Nouveau_Formulaire.md` pour la structure attendue.
 
-## Documentation
-
-| Document | Contenu |
-|---|---|
-| `docs/API_Grist_Widget_Reference.md` | Détail des appels API utilisés (lecture de tables, écriture, gestion des pièces jointes) et des contournements de bugs rencontrés — utile pour développer un nouveau widget. |
-| `docs/Widgets_Dynamiques_Grist_Reference.md` | Explication de la technique de découverte automatique des colonnes via les tables de métadonnées Grist. |
-| `docs/IT_Creation_Nouveau_Formulaire.md` | Procédure pas à pas, destinée à un administrateur du document, pour ajouter un nouveau type de formulaire sans toucher au code. |
-
 ## Limites connues
 
 - La découverte automatique des champs ne détecte que le type Grist générique (Texte, Numérique, Booléen, Date, Choix, Pièce jointe) — les comportements spécifiques (autocomplétion d'adresse, exclusion d'un champ numérique de la moyenne affichée) reposent sur de petites conventions documentées dans `docs/Widgets_Dynamiques_Grist_Reference.md`.
