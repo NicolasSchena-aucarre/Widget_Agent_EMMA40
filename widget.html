@@ -331,48 +331,129 @@
 (function(){
   "use strict";
 
-  var WIDGET_BUILD = '2026-09-04-v15';
+  var WIDGET_BUILD = '2026-09-04-v17';
   console.log('[Formulaire terrain] build ' + WIDGET_BUILD);
 
   var grist = window.grist;
 
   // ---- Champs propres à chaque table technique ----
-  var FIELD_SCHEMAS = {
-    Releve_de_compteur: [
-      {key:'Adresse', label:'Adresse', type:'address', required:true, placeholder:'Commencez à taper une adresse…'},
-      {key:'Numero_Compteur', label:'Numéro de compteur', type:'text', required:true, placeholder:'Ex. CPT-04521'},
-      {key:'Unite_Mesure', label:'Unité de mesure', type:'choice', options:['m³','litres'], required:true, def:'m³'},
-      {key:'Index_Releve', label:'Index relevé', type:'number', required:true, step:'0.01'},
-      {key:'Compteur_Accessible', label:'Compteur accessible', type:'bool', def:true},
-      {key:'Anomalie_Visuelle', label:'Anomalie visuelle', type:'choice', options:['Aucune','Fuite visible','Compteur endommagé','Compteur bloqué'], required:true, def:'Aucune'},
-      {key:'Photo_Releve', label:'Photo du relevé', type:'attachment'},
-      {key:'Commentaire', label:'Commentaire', type:'textarea'}
-    ],
-    Signalement_de_fuite: [
-      {key:'Adresse', label:'Adresse', type:'address', required:true, placeholder:'Commencez à taper une adresse…'},
-      {key:'Type_Fuite', label:'Type de fuite', type:'choice', options:['Canalisation','Raccordement','Vanne','Compteur','Autre'], required:true},
-      {key:'Gravite', label:'Gravité', type:'choice', options:['Faible','Modérée','Critique'], required:true},
-      {key:'Date_Detection', label:'Date de détection', type:'date', required:true, today:true},
-      {key:'Materiau_Canalisation', label:'Matériau de la canalisation', type:'choice', options:['PVC','Fonte','Acier','Cuivre','Inconnu']},
-      {key:'Diametre_Canalisation', label:'Diamètre canalisation', unit:'mm', type:'number', step:'1'},
-      {key:'Debit_Estime_m3_h', label:'Débit estimé', unit:'m³/h', type:'number', step:'0.1'},
-      {key:'Intervention_Urgente_Requise', label:'Intervention urgente requise', type:'bool', urgent:true},
-      {key:'Photo_Fuite', label:'Photo de la fuite', type:'attachment'},
-      {key:'Description', label:'Description', type:'textarea', required:true}
-    ],
-    Controle_qualite_reseau: [
-      {key:'Adresse', label:'Adresse', type:'address', required:true, placeholder:'Commencez à taper une adresse…'},
-      {key:'Point_Controle', label:'Point de contrôle', type:'text', required:true, placeholder:'Ex. Regard R12'},
-      {key:'Conformite', label:'Conformité', type:'choice', options:['Conforme','Non conforme','À surveiller'], required:true},
-      {key:'Pression_Bar', label:'Pression', unit:'bar', type:'number', step:'0.1'},
-      {key:'Turbidite_NTU', label:'Turbidité', unit:'NTU', type:'number', step:'0.1'},
-      {key:'Chlore_Residuel_mg_L', label:'Chlore résiduel', unit:'mg/L', type:'number', step:'0.01'},
-      {key:'pH', label:'pH', type:'number', step:'0.01'},
-      {key:'Prelevement_Effectue', label:'Prélèvement effectué', type:'bool'},
-      {key:'Laboratoire_Analyse', label:'Laboratoire d’analyse', type:'text'},
-      {key:'Observations', label:'Observations', type:'textarea'}
-    ]
+  // ---------------------------------------------------------------
+  // Découverte dynamique des champs d'un formulaire
+  // ---------------------------------------------------------------
+  // Plutôt qu'une liste de champs codée en dur par table technique, on
+  // interroge les tables de métadonnées internes de Grist
+  // (_grist_Tables, _grist_Tables_column) pour découvrir automatiquement
+  // les colonnes d'une table technique, leur type, et — pour les colonnes
+  // de type Choix — leurs options. Ajouter une colonne à une table
+  // technique dans Grist suffit alors à la faire apparaître dans le
+  // widget, sans modification ni redéploiement de ce fichier.
+  //
+  // Limite connue et assumée : seul le type Grist générique est détecté
+  // (Texte, Numérique, Booléen, Date, Choix, Pièce jointe). Les
+  // comportements spécifiques qu'avaient les anciens formulaires codés en
+  // dur (autocomplétion d'adresse, unité affichée à côté d'un nombre,
+  // mise en forme "urgent") ne peuvent pas être devinés à partir du seul
+  // type de colonne — seule l'exception "Adresse" (nom de colonne exact)
+  // est reconnue automatiquement, car cette convention de nommage est
+  // déjà utilisée dans toutes les tables techniques existantes.
+  //
+  // Point non vérifié en conditions réelles : la lecture de
+  // _grist_Tables / _grist_Tables_column par un compte non-Propriétaire.
+  // Les tables de métadonnées sont généralement lisibles par quiconque a
+  // accès au document (c'est ce qui permet à Grist d'afficher les en-têtes
+  // de colonnes à un Éditeur), mais ce point mérite d'être testé
+  // spécifiquement avec chaque rôle avant mise en production.
+  var GRIST_TYPE_MAP = {
+    'Bool': 'bool',
+    'Numeric': 'number',
+    'Int': 'number',
+    'Date': 'date',
+    'DateTime': 'date',
+    'Attachments': 'attachment',
+    'Text': 'text'
   };
+
+  var schemaCache = {}; // tableId technique -> tableau de champs déjà découverts
+
+  function humanizeLabel(colId){
+    return colId.replace(/_/g, ' ');
+  }
+
+  function parseWidgetOptionsJson(raw){
+    try { return raw ? JSON.parse(raw) : null; } catch (e){ return null; }
+  }
+
+  async function discoverFieldSchema(tableId){
+    if (schemaCache[tableId]) return schemaCache[tableId];
+
+    var tablesMeta = await grist.docApi.fetchTable('_grist_Tables');
+    var idx = tablesMeta.tableId.indexOf(tableId);
+    if (idx === -1){
+      throw new Error('Table technique introuvable dans les métadonnées : ' + tableId);
+    }
+    var internalTableId = tablesMeta.id[idx];
+
+    var colsMeta = await grist.docApi.fetchTable('_grist_Tables_column');
+    var fields = [];
+
+    for (var i = 0; i < colsMeta.id.length; i++){
+      if (colsMeta.parentId[i] !== internalTableId) continue;
+
+      var colId = colsMeta.colId[i];
+      var type = colsMeta.type[i];
+      var isFormula = colsMeta.isFormula[i];
+
+      // On ignore : les colonnes calculées (formules), le tri interne,
+      // l'id, et la colonne Reponse (gérée séparément par le widget, pas
+      // affichée comme un champ à remplir).
+      if (isFormula) continue;
+      if (colId === 'manualSort' || colId === 'id' || colId === 'Reponse') continue;
+      if (type && type.indexOf('Ref:') === 0) continue; // autres références, non gérées ici
+
+      var field = { key: colId, label: humanizeLabel(colId) };
+
+      if (colId === 'Adresse' && type === 'Text'){
+        field.type = 'address';
+        field.required = true;
+        field.placeholder = 'Commencez à taper une adresse…';
+      } else if (type === 'Choice'){
+        field.type = 'choice';
+        var opts = parseWidgetOptionsJson(colsMeta.widgetOptions[i]);
+        field.options = (opts && opts.choices) ? opts.choices : [];
+      } else if (GRIST_TYPE_MAP[type]){
+        field.type = GRIST_TYPE_MAP[type];
+        if (field.type === 'number') field.step = '0.01';
+      } else {
+        // Type non géré explicitement (ex. ChoiceList) : repli en texte
+        // libre plutôt que de faire disparaître le champ.
+        field.type = 'text';
+      }
+
+      fields.push(field);
+    }
+
+    schemaCache[tableId] = fields;
+    return fields;
+  }
+
+  // Déclenche la découverte des champs pour une table technique si ce
+  // n'est pas déjà fait ou en cours, et redessine le widget une fois le
+  // résultat disponible.
+  function ensureFieldsLoaded(tableId){
+    if (!tableId || schemaCache[tableId] || state.fieldsLoading[tableId]) return;
+    state.fieldsLoading[tableId] = true;
+    discoverFieldSchema(tableId)
+      .then(function(){
+        state.fieldsLoading[tableId] = false;
+        render();
+      })
+      .catch(function(err){
+        state.fieldsLoading[tableId] = false;
+        console.error('[Formulaire terrain] échec de la découverte des champs pour ' + tableId, err);
+        schemaCache[tableId] = []; // évite de reboucler indéfiniment
+        render();
+      });
+  }
 
   var state = {
     loading:true,
@@ -382,6 +463,7 @@
     agentsRaw:null,        // cached fetchTable('Agents') result, for manual fallback
     manualMode:false,
     selectedFormulaireId:null,
+    fieldsLoading:{},     // tableId technique -> booléen, pour éviter les requêtes en double
     submitting:false,
     toast:null
   };
@@ -613,6 +695,7 @@
 
     html += segmentedHtml();
     var formulaire = state.formulaires[state.selectedFormulaireId];
+    if (formulaire) ensureFieldsLoaded(formulaire.table);
     html += dynamicFormHtml(formulaire);
     html += versionTagHtml();
     html += actionBarHtml();
@@ -657,7 +740,10 @@
 
   function dynamicFormHtml(formulaire){
     if (!formulaire) return '';
-    var fields = FIELD_SCHEMAS[formulaire.table] || [];
+    var fields = schemaCache[formulaire.table];
+    if (!fields){
+      return '<div class="panel"><div class="state-screen" style="padding:24px 0;"><div class="spinner"></div>Chargement des champs du formulaire…</div></div>';
+    }
     var out = '<form id="dynamic-form"><div class="panel">';
 
     out += '<h2>Intervention</h2>';
@@ -737,9 +823,12 @@
   }
 
   function actionBarHtml(){
+    var formulaire = state.formulaires[state.selectedFormulaireId];
+    var fieldsReady = !formulaire || !!schemaCache[formulaire.table];
+    var disabled = state.submitting || !fieldsReady;
     return '<div class="actionbar"><div class="inner">' +
       '<button type="button" class="ghost" id="reset-btn">Effacer</button>' +
-      '<button type="button" class="primary" id="submit-btn"' + (state.submitting?' disabled':'') + '>' +
+      '<button type="button" class="primary" id="submit-btn"' + (disabled?' disabled':'') + '>' +
         (state.submitting ? 'Enregistrement…' : 'Enregistrer') +
       '</button>' +
     '</div></div>';
@@ -932,7 +1021,7 @@
       });
     }
     if (!formulaire) return;
-    var fields = FIELD_SCHEMAS[formulaire.table] || [];
+    var fields = schemaCache[formulaire.table] || [];
     fields.forEach(function(f){
       var id = 'field-' + f.key;
       if (f.type === 'address'){
@@ -978,7 +1067,7 @@
     var dateVal = document.getElementById('field-date-intervention').value;
     var dateEpoch = dateStrToEpoch(dateVal);
 
-    var fields = FIELD_SCHEMAS[formulaire.table] || [];
+    var fields = schemaCache[formulaire.table] || [];
     var values = {};
     var pendingFiles = [];
 
