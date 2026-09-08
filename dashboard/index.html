@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tableau de bord — Interventions</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <div class="badge">Tableau de bord — Interventions</div>
+
+    <div id="state-screen" class="state-screen">
+      <div class="spinner"></div>
+      Chargement des données…
+    </div>
+
+    <div id="dashboard" class="dashboard" hidden>
+      <div class="filters" id="filters">
+        <div class="filter-field">
+          <label for="filter-site">Site</label>
+          <select id="filter-site">
+            <option value="">Tous les sites</option>
+          </select>
+        </div>
+        <div class="filter-field">
+          <label for="filter-service">Service</label>
+          <select id="filter-service">
+            <option value="">Tous les services</option>
+          </select>
+        </div>
+        <button id="filter-reset" class="btn-reset" type="button">Réinitialiser</button>
+        <button id="btn-refresh" class="btn-reset" type="button">↻ Rafraîchir</button>
+        <div class="filter-count" id="filter-count"></div>
+      </div>
+
+      <div class="form-tabs" id="form-tabs">
+        <!-- Peuplé dynamiquement : "Tous" + un bouton par formulaire actif -->
+      </div>
+
+      <div class="chart-grid" id="charts-general">
+        <div class="chart-card">
+          <h2>Répartition par formulaire</h2>
+          <div class="chart-wrap"><canvas id="chart-formulaire"></canvas></div>
+          <div class="chart-empty" id="empty-formulaire" hidden>Aucune donnée pour cette sélection</div>
+        </div>
+        <div class="chart-card">
+          <h2>Répartition par site</h2>
+          <div class="chart-wrap"><canvas id="chart-site"></canvas></div>
+          <div class="chart-empty" id="empty-site" hidden>Aucune donnée pour cette sélection</div>
+        </div>
+        <div class="chart-card">
+          <h2>Répartition par service</h2>
+          <div class="chart-wrap"><canvas id="chart-service"></canvas></div>
+          <div class="chart-empty" id="empty-service" hidden>Aucune donnée pour cette sélection</div>
+        </div>
+      </div>
+
+      <div class="chart-grid" id="charts-formulaire" hidden>
+        <!-- Peuplé dynamiquement selon le formulaire sélectionné -->
+      </div>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="charts.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
