@@ -100,6 +100,16 @@
       fields.push(field);
     }
 
+    // L'adresse doit toujours être le premier champ du formulaire, quel
+    // que soit l'ordre réel des colonnes dans la table Grist — cet ordre
+    // dépend de l'historique de création des colonnes, pas d'un choix
+    // volontaire, donc il n'est pas fiable à lui seul pour ce champ-là.
+    fields.sort(function (a, b) {
+      var aFirst = a.type === 'address' ? 0 : 1;
+      var bFirst = b.type === 'address' ? 0 : 1;
+      return aFirst - bFirst;
+    });
+
     schemaCache[tableId] = fields;
     return fields;
   }
