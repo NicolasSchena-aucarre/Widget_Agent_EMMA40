@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Formulaire terrain</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <div class="state-screen"><div class="spinner"></div>Chargement du formulaire…</div>
+  </div>
+
+  <!-- Ordre de chargement important : chaque fichier suivant peut utiliser
+       les fonctions/variables définies par les précédents (elles partagent
+       toutes la portée globale, comme dans le fichier unique d'origine).
+       app.js doit rester en dernier : c'est lui qui déclenche le
+       démarrage (grist.ready, chargement des données). -->
+  <script src="grist-api.js"></script>
+  <script src="schema.js"></script>
+  <script src="data.js"></script>
+  <script src="address.js"></script>
+  <script src="ui.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
