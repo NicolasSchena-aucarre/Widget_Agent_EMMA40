@@ -1,0 +1,88 @@
+/* nav.css — barre de navigation partagée entre les 3 widgets.
+   À placer à la racine du dépôt, référencée par chaque widget via
+   un chemin relatif ("../nav.css"), pour n'exister qu'à un seul endroit. */
+
+:root{
+  --nav-ink:#16302E;
+  --nav-paper:#F6F4EE;
+  --nav-panel:#FFFFFF;
+  --nav-line:#DCD6C7;
+  --nav-teal:#2B6E6B;
+  --nav-teal-deep:#123634;
+  --nav-muted:#6B675C;
+}
+
+#app-nav{
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+  background:var(--nav-teal-deep);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:8px 12px;
+  position:sticky;
+  top:0;
+  z-index:500;
+  box-shadow:0 2px 6px rgba(18,54,52,.15);
+}
+
+#app-nav button{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  background:transparent;
+  border:1px solid transparent;
+  border-radius:8px;
+  color:#CFE3DD;
+  font-family:inherit;
+  font-weight:600;
+  font-size:.88rem;
+  padding:8px 14px;
+  cursor:pointer;
+  transition:background .15s,color .15s;
+  white-space:nowrap;
+}
+#app-nav button:hover{
+  background:rgba(255,255,255,.08);
+  color:#fff;
+}
+#app-nav button.active{
+  background:var(--nav-teal);
+  color:#fff;
+}
+#app-nav button .nav-icon{
+  font-size:1.05rem;
+  line-height:1;
+}
+#app-nav button .nav-label{
+  display:inline;
+}
+
+/* ---- Version mobile : barre fixée en bas, façon app native ---- */
+@media (max-width: 640px){
+  #app-nav{
+    position:fixed;
+    top:auto;
+    bottom:0;
+    left:0;
+    right:0;
+    justify-content:space-around;
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    box-shadow:0 -2px 6px rgba(18,54,52,.15);
+  }
+  #app-nav button{
+    flex-direction:column;
+    gap:2px;
+    padding:6px 8px;
+    font-size:.68rem;
+    flex:1 1 0;
+  }
+  #app-nav button .nav-icon{
+    font-size:1.25rem;
+  }
+  /* Sur mobile, l'app occupe tout l'écran : il faut laisser de la place
+     en bas pour ne pas que le contenu soit masqué par la barre fixe. */
+  body{
+    padding-bottom:64px !important;
+  }
+}
