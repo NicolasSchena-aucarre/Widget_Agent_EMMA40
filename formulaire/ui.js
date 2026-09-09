@@ -84,7 +84,10 @@
   function segmentedHtml(){
     var buttons = state.formulairesAgent.map(function(f){
       var active = f.id === state.selectedFormulaireId ? ' active' : '';
-      return '<button class="' + active.trim() + '" data-form-id="' + f.id + '">' + escapeHtml(f.titre) + '</button>';
+      return '<button class="' + active.trim() + '" data-form-id="' + f.id + '" title="' + escapeHtml(f.titre) + '">' +
+        '<span class="seg-icon">' + escapeHtml(f.icone) + '</span>' +
+        '<span class="seg-label">' + escapeHtml(f.titre) + '</span>' +
+      '</button>';
     }).join('');
     return '<div class="segmented">' + buttons + '</div>';
   }
