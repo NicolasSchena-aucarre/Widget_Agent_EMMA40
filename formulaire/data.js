@@ -18,6 +18,11 @@
         titre: formulairesTable.Titre[i],
         table: formulairesTable.Table_Technique[i],
         actif: formulairesTable.Actif[i],
+        // Colonne facultative : si elle n'existe pas encore sur la table
+        // Formulaires (ancien document, ou pas encore configurée), on
+        // retombe sur une icône générique plutôt que de faire planter le
+        // widget.
+        icone: (formulairesTable.Icone && formulairesTable.Icone[i]) || '📄',
         servicesConcernes: toList(formulairesTable.Service_Concerne[i])
       };
     });
