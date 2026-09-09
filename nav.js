@@ -15,19 +15,19 @@ var NAV_DESTINATIONS = [
     key: 'formulaire',
     label: 'Formulaire',
     icon: '📝',
-    url: 'https://docs.getgrist.com/VOTRE_DOC_ID/VOTRE_DOC_NOM/p/XX?embed=true'
+    url: 'https://docs.getgrist.com/VOTRE_DOC_ID/VOTRE_DOC_NOM/p/21?embed=true'
   },
   {
     key: 'dashboard',
     label: 'Tableau de bord',
     icon: '📊',
-    url: 'https://docs.getgrist.com/VOTRE_DOC_ID/VOTRE_DOC_NOM/p/YY?embed=true'
+    url: 'https://docs.getgrist.com/VOTRE_DOC_ID/VOTRE_DOC_NOM/p/22?embed=true'
   },
   {
     key: 'consultation',
     label: 'Consultation',
     icon: '🔍',
-    url: 'https://docs.getgrist.com/VOTRE_DOC_ID/VOTRE_DOC_NOM/p/ZZ?embed=true'
+    url: 'https://docs.getgrist.com/VOTRE_DOC_ID/VOTRE_DOC_NOM/p/26?embed=true'
   }
 ];
 
