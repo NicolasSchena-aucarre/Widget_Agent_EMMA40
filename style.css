@@ -103,19 +103,41 @@ h1,h2,.display{
 }
 .segmented button,
 .form-tabs button{
-  flex:1 0 auto;
+  flex:0 0 auto;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:3px;
   font-family:'Barlow Condensed',sans-serif;
   font-weight:600;
-  font-size:1rem;
   letter-spacing:.01em;
   background:var(--panel);
   border:1px solid var(--line);
   color:var(--ink);
-  padding:10px 14px;
+  padding:8px 10px;
   border-radius:8px;
   cursor:pointer;
   white-space:nowrap;
   transition:background .15s,border-color .15s,color .15s;
+}
+/* Le widget Tableau de bord (.form-tabs) garde le libellé seul, en une
+   ligne, comme avant — la découverte par icône ne concerne que le
+   widget Formulaire, où le nombre de formulaires accessibles à un même
+   agent peut devenir grand. */
+.form-tabs button{
+  flex-direction:row;
+  font-size:1rem;
+}
+.segmented button .seg-icon{
+  font-size:1.4rem;
+  line-height:1;
+}
+.segmented button .seg-label{
+  font-size:.72rem;
+  max-width:72px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 .segmented button.active,
 .form-tabs button.active{
