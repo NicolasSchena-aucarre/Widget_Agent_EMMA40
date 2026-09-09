@@ -27,21 +27,21 @@ var NAV_DESTINATIONS = [
     key: 'formulaire',
     label: 'Formulaire',
     icon: '📝',
-    url: 'https://docs.getgrist.com/8mmogqQNskAX/Prototype-Emma40/p/21?embed=true',
+    url: 'https://grist.aucarre.tech/o/docs/1uweUafuLSAK/Prototype-Emma40/p/21?embed=true',
     gateTable: 'Portail_Agent'
   },
   {
     key: 'dashboard',
     label: 'Tableau de bord',
     icon: '📊',
-    url: 'https://docs.getgrist.com/8mmogqQNskAX/Prototype-Emma40/p/22?embed=true',
+    url: 'https://grist.aucarre.tech/o/docs/1uweUafuLSAK/Prototype-Emma40/p/22?embed=true',
     gateTable: 'Postes'
   },
   {
     key: 'consultation',
     label: 'Consultation',
     icon: '🔍',
-    url: 'https://docs.getgrist.com/8mmogqQNskAX/Prototype-Emma40/p/26?embed=true',
+    url: 'https://grist.aucarre.tech/o/docs/1uweUafuLSAK/Prototype-Emma40/p/26?embed=true',
     gateTable: null
   }
 ];
