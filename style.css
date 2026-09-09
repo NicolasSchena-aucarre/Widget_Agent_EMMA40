@@ -13,7 +13,7 @@
 
    Tout ce qui n'est pas scopé ainsi s'applique identiquement partout. */
 
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&family=EB+Garamond:wght@500;600&display=swap');
 
 /* ===================================================================
    1. Base commune (identique dans les 3 widgets d'origine)
@@ -37,7 +37,7 @@
   --accent:#CEDD59;
   --amber:#C4501E;
   --ok:#3C7A5B;
-  --muted:#6B675C;
+  --muted:#6D6F72;
   --focus:#1E5C5B;
   font-size:16px;
 }
@@ -50,8 +50,8 @@ body{
   -webkit-font-smoothing:antialiased;
 }
 h1,h2,.display{
-  font-family:'Barlow Condensed',system-ui,sans-serif;
-  font-weight:700;
+  font-family:'EB Garamond','Georgia',serif;
+  font-weight:600;
   letter-spacing:.01em;
 }
 
