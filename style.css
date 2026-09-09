@@ -19,16 +19,26 @@
    1. Base commune (identique dans les 3 widgets d'origine)
    =================================================================== */
 :root{
+  /* Palette alignée sur l'identité visuelle EMMA40 (Eaux Marensin
+     Maremne-Adour), extraite directement du logo fourni par le client :
+     --teal / --teal-deep sont dérivés du dégradé de la goutte (assombris
+     légèrement par rapport au logo pour garder un contraste de texte
+     suffisant en usage interface — vérifié : 4.2:1 et 7.7:1 sur blanc) ;
+     --teal-light et --accent reprennent les teintes exactes du logo,
+     réservées aux usages décoratifs (pas de texte dessus, contraste
+     insuffisant pour ça). */
   --ink:#16302E;
-  --paper:#F6F4EE;
+  --paper:#F2F8F7;
   --panel:#FFFFFF;
-  --line:#DCD6C7;
-  --teal:#2B6E6B;
-  --teal-deep:#123634;
+  --line:#D8E6E5;
+  --teal:#2F8886;
+  --teal-deep:#1E5C5B;
+  --teal-light:#6DC4C0;
+  --accent:#CEDD59;
   --amber:#C4501E;
   --ok:#3C7A5B;
   --muted:#6B675C;
-  --focus:#1B4B4F;
+  --focus:#1E5C5B;
   font-size:16px;
 }
 *{box-sizing:border-box;}
@@ -206,11 +216,22 @@ h1,h2,.display{
   font-size:1.05rem;
   letter-spacing:.02em;
 }
-.view-dashboard .header-row{
+/* ---- En-tête avec logo : motif commun aux 3 widgets ---- */
+.header-row{
   display:flex;
   align-items:center;
   gap:10px;
 }
+.brand-logo{
+  height:34px;
+  width:auto;
+  flex:none;
+  display:block;
+}
+.view-formulaire .badge .brand-logo{
+  height:38px;
+}
+
 .view-dashboard .btn-gear{
   width:36px;height:36px;
   border-radius:8px;
@@ -247,8 +268,8 @@ h1,h2,.display{
 }
 .view-formulaire .badge .dot{
   width:9px;height:9px;border-radius:50%;
-  background:#7FD9A0;
-  box-shadow:0 0 0 3px rgba(127,217,160,.25);
+  background:var(--accent);
+  box-shadow:0 0 0 3px rgba(206,221,89,.3);
   flex:none;
 }
 
@@ -810,5 +831,5 @@ h1,h2,.display{
   .view-dashboard .app{padding:14px 12px 40px;}
   .view-dashboard .filters{flex-direction:column;align-items:stretch;}
   .view-dashboard .filter-count{margin-left:0;}
-  .view-dashboard .header-row{flex-wrap:wrap;}
+  .header-row{flex-wrap:wrap;}
 }
