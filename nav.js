@@ -27,7 +27,7 @@ var NAV_DESTINATIONS = [
     key: 'consultation',
     label: 'Consultation',
     icon: '🔍',
-    url: 'https://docs.getgrist.com/o/docs/1uweUafuLSAK/Prototype-Emma40/p/26?embed=true'
+    url: 'https://grist.aucarre.tech/o/docs/1uweUafuLSAK/Prototype-Emma40/p/26?embed=true'
   }
 ];
 
