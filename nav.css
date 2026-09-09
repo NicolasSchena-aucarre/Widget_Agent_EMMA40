@@ -122,4 +122,14 @@
   body{
     padding-bottom:var(--nav-height-mobile) !important;
   }
+  /* Sur le widget Formulaire, la barre d'action (Effacer / Enregistrer)
+     est elle aussi fixée en bas de l'écran — sans ce décalage, elle se
+     retrouverait exactement sous la barre d'onglets du menu, invisible
+     derrière elle plutôt qu'au-dessus. */
+  .view-formulaire .actionbar{
+    bottom:var(--nav-height-mobile) !important;
+  }
+  .view-formulaire .app{
+    padding-bottom:calc(100px + var(--nav-height-mobile)) !important;
+  }
 }
