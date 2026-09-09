@@ -58,6 +58,7 @@
   function badgeHtml(){
     var meta = [state.agent.service, state.agent.site].filter(Boolean).join(' · ');
     return '<div class="badge">' +
+      '<img class="brand-logo" src="../logo-icon.png" alt="EMMA40" />' +
       '<div class="who">' +
         '<div class="name">' + escapeHtml(state.agent.nom) + '</div>' +
         '<div class="meta">' + escapeHtml(meta) + '</div>' +
