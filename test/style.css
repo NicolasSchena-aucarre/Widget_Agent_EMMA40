@@ -1,0 +1,330 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+:root{
+  /* Palette reprise à l'identique du widget "Formulaire terrain", pour
+     rester visuellement cohérent entre les deux widgets personnalisés. */
+  --ink:#16302E;
+  --paper:#F6F4EE;
+  --panel:#FFFFFF;
+  --line:#DCD6C7;
+  --teal:#2B6E6B;
+  --teal-deep:#123634;
+  --amber:#C4501E;
+  --ok:#3C7A5B;
+  --muted:#6B675C;
+  --focus:#1B4B4F;
+  font-size:16px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.app{
+  max-width:1100px;
+  margin:0 auto;
+  padding:18px 20px 60px;
+}
+h1,h2,.display{
+  font-family:'Barlow Condensed',system-ui,sans-serif;
+  font-weight:700;
+  letter-spacing:.01em;
+}
+h2{
+  margin:0 0 12px;
+  font-size:1.15rem;
+  color:var(--teal-deep);
+}
+
+/* ---- Loading state ---- */
+.state-screen{
+  padding:64px 20px;
+  text-align:center;
+  color:var(--muted);
+}
+.state-screen .spinner{
+  width:28px;height:28px;margin:0 auto 14px;
+  border:3px solid var(--line);
+  border-top-color:var(--teal);
+  border-radius:50%;
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ---- Badge / header ---- */
+.header-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:0;
+}
+.badge{
+  background:var(--teal-deep);
+  color:#fff;
+  display:inline-block;
+  padding:8px 16px;
+  border-radius:8px;
+  font-family:'Barlow Condensed',system-ui,sans-serif;
+  font-weight:700;
+  font-size:1.05rem;
+  letter-spacing:.02em;
+}
+.btn-gear{
+  width:36px;height:36px;
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:var(--panel);
+  color:var(--teal-deep);
+  font-size:1.1rem;
+  cursor:pointer;
+}
+.btn-gear:hover{background:var(--paper);}
+.version-tag{
+  text-align:right;
+  font-size:.7rem;
+  color:var(--muted);
+  margin:-12px 0 12px;
+}
+
+/* ---- Filters ---- */
+.filters{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:flex-end;
+  gap:14px;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:14px 16px;
+  margin-bottom:20px;
+}
+.filter-field{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  min-width:180px;
+}
+.filter-field label{
+  font-size:.78rem;
+  color:var(--muted);
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+}
+.filter-field select{
+  padding:8px 10px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:inherit;
+  font-size:.92rem;
+}
+.filter-field select:focus{
+  outline:2px solid var(--focus);
+  outline-offset:1px;
+}
+.btn-reset{
+  padding:9px 14px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:var(--panel);
+  color:var(--teal-deep);
+  font-family:inherit;
+  font-weight:600;
+  font-size:.88rem;
+  cursor:pointer;
+}
+.btn-reset:hover{
+  background:var(--paper);
+}
+.filter-count{
+  margin-left:auto;
+  align-self:center;
+  color:var(--muted);
+  font-size:.85rem;
+}
+
+/* ---- Chart grid ---- */
+.chart-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));
+  gap:18px;
+}
+.chart-grid[hidden]{
+  display:none;
+}
+.chart-card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:16px;
+  box-shadow:0 1px 3px rgba(22,48,46,.06);
+  position:relative;
+}
+.chart-wrap{
+  position:relative;
+  height:280px;
+}
+.chart-empty{
+  position:absolute;
+  inset:44px 16px 16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--muted);
+  font-size:.9rem;
+  text-align:center;
+}
+.chart-empty[hidden]{
+  display:none;
+}
+
+/* ---- Form type tabs (même style que .segmented du widget Formulaire) ---- */
+.form-tabs{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-bottom:18px;
+}
+.form-tabs button{
+  font-family:'Barlow Condensed',system-ui,sans-serif;
+  font-weight:600;
+  font-size:1rem;
+  letter-spacing:.01em;
+  background:var(--panel);
+  border:1px solid var(--line);
+  color:var(--ink);
+  padding:10px 14px;
+  border-radius:8px;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:background .15s,border-color .15s,color .15s;
+}
+.form-tabs button.active{
+  background:var(--teal);
+  border-color:var(--teal);
+  color:#fff;
+}
+
+/* ---- Stat card (champ numérique résumé en une valeur) ---- */
+.stat-card{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  height:100%;
+  min-height:120px;
+  text-align:center;
+}
+.stat-card .stat-value{
+  font-family:'Barlow Condensed',system-ui,sans-serif;
+  font-weight:700;
+  font-size:2.4rem;
+  color:var(--teal-deep);
+  line-height:1;
+}
+.stat-card .stat-sub{
+  margin-top:8px;
+  color:var(--muted);
+  font-size:.85rem;
+}
+
+/* ---- Panneau de réglages (choix des champs affichés) ---- */
+.modal-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(18,54,52,.82);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:1000;
+  padding:24px;
+}
+.modal-overlay[hidden]{
+  display:none;
+}
+.modal-box{
+  background:var(--panel);
+  border-radius:12px;
+  padding:16px;
+  width:min(90vw, 560px);
+  max-height:85vh;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.modal-toolbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.btn-close{
+  width:32px;height:32px;
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:var(--panel);
+  color:var(--ink);
+  font-size:1rem;
+  cursor:pointer;
+}
+.btn-close:hover{background:var(--paper);}
+.btn-download{
+  padding:9px 16px;
+  border-radius:8px;
+  background:var(--teal);
+  color:#fff;
+  font-family:'Inter',system-ui,sans-serif;
+  font-weight:600;
+  font-size:.9rem;
+  border:none;
+  cursor:pointer;
+}
+.btn-download:hover{background:var(--teal-deep);}
+
+.settings-body{
+  overflow-y:auto;
+  flex:1 1 auto;
+}
+.settings-group{
+  margin-bottom:16px;
+}
+.settings-group h3{
+  margin:0 0 8px;
+  font-size:.95rem;
+  color:var(--teal-deep);
+  font-family:'Barlow Condensed',system-ui,sans-serif;
+  font-weight:700;
+  border-bottom:1px solid var(--line);
+  padding-bottom:4px;
+}
+.settings-field{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:5px 0;
+  font-size:.9rem;
+}
+.settings-field label{cursor:pointer;}
+.settings-empty{
+  color:var(--muted);
+  font-size:.85rem;
+  font-style:italic;
+}
+.settings-footer{
+  display:flex;
+  justify-content:flex-end;
+  border-top:1px solid var(--line);
+  padding-top:12px;
+}
+
+@media (max-width:640px){
+  .app{padding:14px 12px 40px;}
+  .filters{flex-direction:column;align-items:stretch;}
+  .filter-count{margin-left:0;}
+  .header-row{flex-wrap:wrap;}
+}
