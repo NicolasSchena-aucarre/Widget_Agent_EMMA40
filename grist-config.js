@@ -35,21 +35,21 @@ var NAV_DESTINATIONS = [
     key: 'formulaire',
     label: 'Formulaire',
     icon: '📝',
-    url: 'https://docs.getgrist.com/VOTRE_DOC_ID/VOTRE_DOC_NOM/p/XX?embed=true',
+    url: 'https://grist.aucarre.tech/o/docs/1uweUafuLSAK/Prototype-Emma40/p/21?embed=true',
     gateTable: 'Portail_Agent'
   },
   {
     key: 'dashboard',
     label: 'Tableau de bord',
     icon: '📊',
-    url: 'https://docs.getgrist.com/VOTRE_DOC_ID/VOTRE_DOC_NOM/p/YY?embed=true',
+    url: 'https://grist.aucarre.tech/o/docs/1uweUafuLSAK/Prototype-Emma40/p/22?embed=true',
     gateTable: 'Postes'
   },
   {
     key: 'consultation',
     label: 'Consultation',
     icon: '🔍',
-    url: 'https://docs.getgrist.com/VOTRE_DOC_ID/VOTRE_DOC_NOM/p/ZZ?embed=true',
+    url: 'https://grist.aucarre.tech/o/docs/1uweUafuLSAK/Prototype-Emma40/p/26?embed=true',
     gateTable: null
   }
 ];
